@@ -1,30 +1,45 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:final_note/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('shows the responsive notes dashboard', (tester) async {
+    await tester.pumpWidget(const NoteFlowApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('NoteFlow'), findsOneWidget);
+    expect(find.text('Your notes'), findsOneWidget);
+    expect(find.text('Ideas for the weekend'), findsOneWidget);
+    expect(find.byTooltip('Grid view'), findsOneWidget);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  testWidgets('search filters notes by title and content', (tester) async {
+    await tester.pumpWidget(const NoteFlowApp());
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'coffee');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ideas for the weekend'), findsOneWidget);
+    expect(find.text('Project kickoff'), findsNothing);
+  });
+
+  testWidgets('label chips filter notes', (tester) async {
+    await tester.pumpWidget(const NoteFlowApp());
+
+    await tester.tap(find.widgetWithText(FilterChip, 'Work'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Project kickoff'), findsOneWidget);
+    expect(find.text('Ideas for the weekend'), findsNothing);
+  });
+
+  testWidgets('switches to list view', (tester) async {
+    await tester.pumpWidget(const NoteFlowApp());
+
+    await tester.tap(find.byTooltip('List view'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Project kickoff'), findsOneWidget);
+    expect(find.byType(GridView), findsNothing);
   });
 }
