@@ -25,6 +25,7 @@ void main() {
     expect(find.byKey(const Key('register-name')), findsOneWidget);
     expect(find.byKey(const Key('register-confirm-password')), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Sign in'));
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
     expect(find.text('Welcome back'), findsOneWidget);
