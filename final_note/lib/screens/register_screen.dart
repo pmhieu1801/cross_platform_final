@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../theme/theme.dart';
+import '../utils/validators.dart';
+import '../widgets/widgets.dart';
+
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -13,11 +17,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+
   bool _obscurePassword = true;
   bool _obscureConfirmation = true;
+  bool _isLoading = false;
+  PasswordStrength _strength = PasswordStrength.empty;
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordController.addListener(_onPasswordChanged);
+  }
+
+  void _onPasswordChanged() {
+    setState(() {
+      _strength = evaluatePasswordStrength(_passwordController.text);
+    });
+  }
 
   @override
   void dispose() {
+    _passwordController.removeListener(_onPasswordChanged);
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -25,15 +45,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _showUiOnlyMessage() {
+  void _submit() {
     if (!_formKey.currentState!.validate()) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Account creation will be available when authentication is set up.',
+    setState(() => _isLoading = true);
+
+    Future<void>.delayed(const Duration(milliseconds: 700), () {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Account creation will be available when authentication is set up.',
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
   void _returnToLogin() {
@@ -43,291 +69,345 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFAF9F6),
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: const Color(0xFFFAF9F6),
         leading: IconButton(
           tooltip: 'Back to sign in',
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _returnToLogin,
           icon: const Icon(Icons.arrow_back_rounded),
         ),
       ),
-      body: SafeArea(
-        top: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxWidth < 480;
-            return Center(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  compact ? 24 : 36,
-                  12,
-                  compact ? 24 : 36,
-                  32,
-                ),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 420),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const _RegistrationBrand(),
-                        const SizedBox(height: 30),
-                        const Text(
-                          'Make room for your thoughts',
-                          style: TextStyle(
-                            color: Color(0xFF202A26),
-                            fontSize: 29,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.8,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Create an account and keep all your notes together.',
-                          style: TextStyle(
-                            color: Color(0xFF77817C),
-                            fontSize: 14,
-                            height: 1.5,
-                          ),
-                        ),
-                        const SizedBox(height: 26),
-                        const _RegistrationFieldLabel('Display name'),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          key: const Key('register-name'),
-                          controller: _nameController,
-                          textCapitalization: TextCapitalization.words,
-                          textInputAction: TextInputAction.next,
-                          autofillHints: const [AutofillHints.name],
-                          decoration: const InputDecoration(
-                            hintText: 'How should we call you?',
-                            prefixIcon: Icon(Icons.person_outline_rounded),
-                          ),
-                          validator: (value) =>
-                              value == null || value.trim().isEmpty
-                              ? 'Enter your display name.'
-                              : null,
-                        ),
-                        const SizedBox(height: 17),
-                        const _RegistrationFieldLabel('Email address'),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          key: const Key('register-email'),
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          textInputAction: TextInputAction.next,
-                          autofillHints: const [AutofillHints.email],
-                          decoration: const InputDecoration(
-                            hintText: 'you@example.com',
-                            prefixIcon: Icon(Icons.mail_outline_rounded),
-                          ),
-                          validator: _validateRegistrationEmail,
-                        ),
-                        const SizedBox(height: 17),
-                        const _RegistrationFieldLabel('Password'),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          key: const Key('register-password'),
-                          controller: _passwordController,
-                          obscureText: _obscurePassword,
-                          textInputAction: TextInputAction.next,
-                          autofillHints: const [AutofillHints.newPassword],
-                          decoration: InputDecoration(
-                            hintText: 'At least 8 characters',
-                            prefixIcon: const Icon(Icons.lock_outline_rounded),
-                            suffixIcon: IconButton(
-                              tooltip: _obscurePassword
-                                  ? 'Show password'
-                                  : 'Hide password',
-                              onPressed: () => setState(
-                                () => _obscurePassword = !_obscurePassword,
-                              ),
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
-                              ),
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Create a password.';
-                            }
-                            if (value.length < 8) {
-                              return 'Use at least 8 characters.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 17),
-                        const _RegistrationFieldLabel('Confirm password'),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          key: const Key('register-confirm-password'),
-                          controller: _confirmPasswordController,
-                          obscureText: _obscureConfirmation,
-                          textInputAction: TextInputAction.done,
-                          autofillHints: const [AutofillHints.newPassword],
-                          onFieldSubmitted: (_) => _showUiOnlyMessage(),
-                          decoration: InputDecoration(
-                            hintText: 'Enter your password again',
-                            prefixIcon: const Icon(Icons.lock_outline_rounded),
-                            suffixIcon: IconButton(
-                              tooltip: _obscureConfirmation
-                                  ? 'Show confirmation password'
-                                  : 'Hide confirmation password',
-                              onPressed: () => setState(
-                                () => _obscureConfirmation =
-                                    !_obscureConfirmation,
-                              ),
-                              icon: Icon(
-                                _obscureConfirmation
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
-                              ),
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Confirm your password.';
-                            }
-                            if (value != _passwordController.text) {
-                              return 'Passwords do not match.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 24),
-                        FilledButton(
-                          onPressed: _showUiOnlyMessage,
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(52),
-                            backgroundColor: const Color(0xFF315C4C),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            textStyle: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          child: const Text('Create account'),
-                        ),
-                        const SizedBox(height: 20),
-                        Wrap(
-                          alignment: WrapAlignment.center,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            const Text(
-                              'Already have an account? ',
-                              style: TextStyle(
-                                color: Color(0xFF77817C),
-                                fontSize: 13,
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: _returnToLogin,
-                              style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                ),
-                              ),
-                              child: const Text(
-                                'Sign in',
-                                style: TextStyle(
-                                  color: Color(0xFF315C4C),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Your notes are yours. We’ll always treat them that way.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Color(0xFF77817C),
-                            fontSize: 12,
-                            height: 1.5,
-                          ),
-                        ),
-                      ],
+      body: AppBackground(
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isDesktop = constraints.maxWidth >= 860;
+
+              return Center(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? AppSpacing.xxl : AppSpacing.lg,
+                    vertical: AppSpacing.xl,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: isDesktop ? 960 : 440,
                     ),
+                    child: isDesktop
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                flex: 5,
+                                child: _buildHeroShowcase(context),
+                              ),
+                              const SizedBox(width: AppSpacing.xxl),
+                              Expanded(
+                                flex: 6,
+                                child: _buildFormCard(context),
+                              ),
+                            ],
+                          )
+                        : _buildFormCard(context),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeroShowcase(BuildContext context) {
+    final text = context.text;
+    final tokens = context.tokens;
+
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const BrandBadge(size: 52),
+          const SizedBox(height: AppSpacing.xl),
+          Text(
+            'Make room for\nyour thoughts.',
+            style: text.displaySmall?.copyWith(
+              fontFamily: AppTypography.display,
+              fontWeight: FontWeight.w800,
+              height: 1.15,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Join NoteFlow today. Organize your knowledge, collaborate in real time, and let AI summarize your ideas.',
+            style: text.bodyLarge?.copyWith(
+              color: tokens.textMuted,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xxl),
+          _HighlightItem(
+            icon: Icons.sync_rounded,
+            title: 'Always synchronized',
+            description: 'Notes update instantly across all your devices.',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _HighlightItem(
+            icon: Icons.shield_outlined,
+            title: 'Privacy focused',
+            description: 'Individual password locks for your private journals.',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _HighlightItem(
+            icon: Icons.palette_outlined,
+            title: 'Beautiful experience',
+            description: 'Midnight Glow theme designed for focus and clarity.',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFormCard(BuildContext context) {
+    final text = context.text;
+    final tokens = context.tokens;
+    final colors = context.colors;
+
+    return GlassPanel(
+      glowColor: colors.secondary,
+      padding: const EdgeInsets.all(AppSpacing.xxl),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Center(child: BrandBadge()),
+            const SizedBox(height: AppSpacing.xl),
+            Text(
+              'Make room for your thoughts',
+              style: text.headlineMedium?.copyWith(
+                fontFamily: AppTypography.display,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Create an account and keep all your notes together.',
+              style: text.bodyMedium?.copyWith(color: tokens.textMuted),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+
+            // Display name
+            Text(
+              'Display name',
+              style: text.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            TextFormField(
+              key: const Key('register-name'),
+              controller: _nameController,
+              textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.name],
+              decoration: const InputDecoration(
+                hintText: 'How should we call you?',
+                prefixIcon: Icon(Icons.person_outline_rounded),
+              ),
+              validator: Validators.displayName,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            // Email address
+            Text(
+              'Email address',
+              style: text.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            TextFormField(
+              key: const Key('register-email'),
+              controller: _emailController,
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.email],
+              decoration: const InputDecoration(
+                hintText: 'you@example.com',
+                prefixIcon: Icon(Icons.mail_outline_rounded),
+              ),
+              validator: Validators.email,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            // Password
+            Text(
+              'Password',
+              style: text.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            TextFormField(
+              key: const Key('register-password'),
+              controller: _passwordController,
+              obscureText: _obscurePassword,
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.newPassword],
+              decoration: InputDecoration(
+                hintText: 'At least 8 characters',
+                prefixIcon: const Icon(Icons.lock_outline_rounded),
+                suffixIcon: IconButton(
+                  tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                  onPressed: () => setState(
+                    () => _obscurePassword = !_obscurePassword,
+                  ),
+                  icon: Icon(
+                    _obscurePassword
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
                   ),
                 ),
               ),
-            );
-          },
+              validator: Validators.newPassword,
+            ),
+            PasswordStrengthBar(strength: _strength),
+            const SizedBox(height: AppSpacing.md),
+
+            // Confirm Password
+            Text(
+              'Confirm password',
+              style: text.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            TextFormField(
+              key: const Key('register-confirm-password'),
+              controller: _confirmPasswordController,
+              obscureText: _obscureConfirmation,
+              textInputAction: TextInputAction.done,
+              autofillHints: const [AutofillHints.newPassword],
+              onFieldSubmitted: (_) => _submit(),
+              decoration: InputDecoration(
+                hintText: 'Enter your password again',
+                prefixIcon: const Icon(Icons.lock_outline_rounded),
+                suffixIcon: IconButton(
+                  tooltip: _obscureConfirmation
+                      ? 'Show confirmation password'
+                      : 'Hide confirmation password',
+                  onPressed: () => setState(
+                    () => _obscureConfirmation = !_obscureConfirmation,
+                  ),
+                  icon: Icon(
+                    _obscureConfirmation
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                  ),
+                ),
+              ),
+              validator: (val) {
+                if (val == null || val.isEmpty) {
+                  return 'Confirm your password.';
+                }
+                if (val != _passwordController.text) {
+                  return 'Passwords do not match.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: AppSpacing.xl),
+
+            GradientButton(
+              label: 'Create account',
+              loading: _isLoading,
+              onPressed: _submit,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  'Already have an account? ',
+                  style: text.bodyMedium?.copyWith(color: tokens.textMuted),
+                ),
+                TextButton(
+                  onPressed: _returnToLogin,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    'Sign in',
+                    style: text.labelMedium?.copyWith(
+                      color: colors.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Your notes are yours. We’ll always treat them that way.',
+              textAlign: TextAlign.center,
+              style: text.bodySmall?.copyWith(color: tokens.textMuted),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _RegistrationBrand extends StatelessWidget {
-  const _RegistrationBrand();
+class _HighlightItem extends StatelessWidget {
+  const _HighlightItem({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+    final text = context.text;
+    final tokens = context.tokens;
+
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
           width: 38,
           height: 38,
           decoration: BoxDecoration(
-            color: const Color(0xFF315C4C),
-            borderRadius: BorderRadius.circular(13),
+            color: colors.secondary.withValues(alpha: 0.14),
+            borderRadius: AppRadius.smAll,
+            border: Border.all(
+              color: colors.secondary.withValues(alpha: 0.28),
+            ),
           ),
-          child: const Icon(
-            Icons.auto_awesome_rounded,
-            color: Colors.white,
-            size: 20,
-          ),
+          child: Icon(icon, size: 20, color: colors.secondary),
         ),
-        const SizedBox(width: 10),
-        const Text(
-          'NoteFlow',
-          style: TextStyle(
-            color: Color(0xFF202A26),
-            fontSize: 21,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.6,
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: AppSpacing.xxs),
+              Text(
+                description,
+                style: text.bodySmall?.copyWith(color: tokens.textMuted),
+              ),
+            ],
           ),
         ),
       ],
     );
   }
-}
-
-class _RegistrationFieldLabel extends StatelessWidget {
-  const _RegistrationFieldLabel(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: const TextStyle(
-        color: Color(0xFF202A26),
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-      ),
-    );
-  }
-}
-
-String? _validateRegistrationEmail(String? value) {
-  final email = value?.trim() ?? '';
-  if (email.isEmpty) return 'Enter your email address.';
-  if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
-    return 'Enter a valid email address.';
-  }
-  return null;
 }
