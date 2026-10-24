@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'screens/notes_home_screen.dart';
+import 'screens/login_screen.dart';
 
 void main() {
   runApp(const NoteFlowApp());
@@ -60,7 +60,7 @@ class NoteFlowApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const NotesHomeScreen(),
+      home: const LoginScreen(),
     );
   }
 }
