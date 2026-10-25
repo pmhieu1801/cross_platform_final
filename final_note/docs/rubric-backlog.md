@@ -2,7 +2,7 @@
 
 ID và tên đã đối chiếu đề gốc mục IV (trang 9-14); ownership theo Workflow trang 1/5; username do M1 cung cấp. Bảng này bao phủ toàn dự án. Priority/reviewer/sprint/dependency là đề xuất điều phối, chưa được nhóm chốt. Không issue nào được đánh Done.
 
-Theo lần kiểm tra ngày 24/10/2026, GitHub có 24 issue đã publish trong bảng; R25-R32 được chuẩn bị đầy đủ dưới đây và chưa có số issue để liên kết. M3 chưa được xác minh collaborator permission; owner trong body vẫn là cheertoburi, không assign người khác thay M3. M1 cần kiểm tra invite/access.
+Theo lần kiểm tra ngày 24/10/2026, GitHub có 24 issue đã publish trong bảng; R25-R32 được chuẩn bị đầy đủ dưới đây và chưa có số issue để liên kết. Cập nhật 25/10: M1 xác nhận M3 đúng username CheetoBuri, collaborator permission đã đọc được là read; M2 hnt0411 có write. Không assign người khác thay owner M3.
 
 Deadline và khoảng 4 tuần chính thức: **chưa xác nhận**. M1 nói hiện cuối W1. Đề gốc mục V xác nhận 4 tuần Monday-Sunday liên tiếp, mỗi thành viên >=2 meaningful commits mỗi tuần trong official period; không gán ngày hoặc chia commit vụn để đủ số.
 
@@ -10,38 +10,38 @@ Luồng tracker: Backlog → Ready → In Progress → PR → QA Web + Native �
 
 | Rubric | Owner | Reviewer đề xuất | Sprint | Ưu tiên | GitHub / trạng thái |
 | --- | --- | --- | --- | --- | --- |
-| R01 - User registration | pmhieu1801 | hnt0411, cheertoburi | W1 | P0 | [#3](https://github.com/pmhieu1801/cross_platform_final/issues/3) - Open |
-| R02 - Account activation | pmhieu1801 | hnt0411, cheertoburi | W2 | P1 | [#4](https://github.com/pmhieu1801/cross_platform_final/issues/4) - Open |
-| R03 - User login and logout | pmhieu1801 | hnt0411, cheertoburi | W1 | P0 | [#5](https://github.com/pmhieu1801/cross_platform_final/issues/5) - Open |
-| R04 - Password reset | pmhieu1801 | hnt0411, cheertoburi | W2 | P1 | [#6](https://github.com/pmhieu1801/cross_platform_final/issues/6) - Open |
+| R01 - User registration | pmhieu1801 | hnt0411, CheetoBuri | W1 | P0 | [#3](https://github.com/pmhieu1801/cross_platform_final/issues/3) - Open |
+| R02 - Account activation | pmhieu1801 | hnt0411, CheetoBuri | W2 | P1 | [#4](https://github.com/pmhieu1801/cross_platform_final/issues/4) - Open |
+| R03 - User login and logout | pmhieu1801 | hnt0411, CheetoBuri | W1 | P0 | [#5](https://github.com/pmhieu1801/cross_platform_final/issues/5) - Open |
+| R04 - Password reset | pmhieu1801 | hnt0411, CheetoBuri | W2 | P1 | [#6](https://github.com/pmhieu1801/cross_platform_final/issues/6) - Open |
 | R05 - View profile and avatar | pmhieu1801 | hnt0411 | W2 | P1 | [#7](https://github.com/pmhieu1801/cross_platform_final/issues/7) - Open |
-| R06 - Edit profile and avatar | pmhieu1801 | hnt0411, cheertoburi | W2 | P1 | [#8](https://github.com/pmhieu1801/cross_platform_final/issues/8) - Open |
-| R07 - Change password | pmhieu1801 | cheertoburi | W2 | P1 | [#9](https://github.com/pmhieu1801/cross_platform_final/issues/9) - Open |
+| R06 - Edit profile and avatar | pmhieu1801 | hnt0411, CheetoBuri | W2 | P1 | [#8](https://github.com/pmhieu1801/cross_platform_final/issues/8) - Open |
+| R07 - Change password | pmhieu1801 | CheetoBuri | W2 | P1 | [#9](https://github.com/pmhieu1801/cross_platform_final/issues/9) - Open |
 | R08 - User preferences | pmhieu1801 | hnt0411 | W2 | P1 | [#10](https://github.com/pmhieu1801/cross_platform_final/issues/10) - Open |
 | R09 - Display notes in list view | hnt0411 | pmhieu1801 | W1-W2 | P1 | [#11](https://github.com/pmhieu1801/cross_platform_final/issues/11) - Open |
 | R10 - Display notes in grid view | hnt0411 | pmhieu1801 | W1-W2 | P1 | [#12](https://github.com/pmhieu1801/cross_platform_final/issues/12) - Open |
-| R11 - Create notes | hnt0411 | pmhieu1801, cheertoburi | W1 | P0 | [#13](https://github.com/pmhieu1801/cross_platform_final/issues/13) - Open |
-| R12 - Update notes | hnt0411 | pmhieu1801, cheertoburi | W2 | P1 | [#14](https://github.com/pmhieu1801/cross_platform_final/issues/14) - Open |
-| R13 - Delete notes | hnt0411 | pmhieu1801, cheertoburi | W2 | P1 | [#15](https://github.com/pmhieu1801/cross_platform_final/issues/15) - Open |
-| R14 - Auto-save notes and handle app lifecycle | hnt0411 | pmhieu1801, cheertoburi | W2 | P0 | [#16](https://github.com/pmhieu1801/cross_platform_final/issues/16) - Open |
-| R15 - Attach images/videos to notes | hnt0411 | cheertoburi | W3 | P1 | [#17](https://github.com/pmhieu1801/cross_platform_final/issues/17) - Open |
-| R16 - Attach files to notes | hnt0411 | cheertoburi | W3 | P1 | [#18](https://github.com/pmhieu1801/cross_platform_final/issues/18) - Open |
+| R11 - Create notes | hnt0411 | pmhieu1801, CheetoBuri | W1 | P0 | [#13](https://github.com/pmhieu1801/cross_platform_final/issues/13) - Open |
+| R12 - Update notes | hnt0411 | pmhieu1801, CheetoBuri | W2 | P1 | [#14](https://github.com/pmhieu1801/cross_platform_final/issues/14) - Open |
+| R13 - Delete notes | hnt0411 | pmhieu1801, CheetoBuri | W2 | P1 | [#15](https://github.com/pmhieu1801/cross_platform_final/issues/15) - Open |
+| R14 - Auto-save notes and handle app lifecycle | hnt0411 | pmhieu1801, CheetoBuri | W2 | P0 | [#16](https://github.com/pmhieu1801/cross_platform_final/issues/16) - Open |
+| R15 - Attach images/videos to notes | hnt0411 | CheetoBuri | W3 | P1 | [#17](https://github.com/pmhieu1801/cross_platform_final/issues/17) - Open |
+| R16 - Attach files to notes | hnt0411 | CheetoBuri | W3 | P1 | [#18](https://github.com/pmhieu1801/cross_platform_final/issues/18) - Open |
 | R17 - Pin and order notes | hnt0411 | pmhieu1801 | W2 | P1 | [#19](https://github.com/pmhieu1801/cross_platform_final/issues/19) - Open |
-| R18 - Special-note status indicators | hnt0411 | cheertoburi | W3 | P1 | [#20](https://github.com/pmhieu1801/cross_platform_final/issues/20) - Open |
-| R19 - Live search for notes | hnt0411 | pmhieu1801, cheertoburi | W2 | P1 | [#21](https://github.com/pmhieu1801/cross_platform_final/issues/21) - Open |
-| R20 - Label management (list, add, rename, delete) | hnt0411 | pmhieu1801, cheertoburi | W2 | P1 | [#22](https://github.com/pmhieu1801/cross_platform_final/issues/22) - Open |
-| R21 - Attach labels to notes | hnt0411 | pmhieu1801, cheertoburi | W2 | P1 | [#23](https://github.com/pmhieu1801/cross_platform_final/issues/23) - Open |
+| R18 - Special-note status indicators | hnt0411 | CheetoBuri | W3 | P1 | [#20](https://github.com/pmhieu1801/cross_platform_final/issues/20) - Open |
+| R19 - Live search for notes | hnt0411 | pmhieu1801, CheetoBuri | W2 | P1 | [#21](https://github.com/pmhieu1801/cross_platform_final/issues/21) - Open |
+| R20 - Label management (list, add, rename, delete) | hnt0411 | pmhieu1801, CheetoBuri | W2 | P1 | [#22](https://github.com/pmhieu1801/cross_platform_final/issues/22) - Open |
+| R21 - Attach labels to notes | hnt0411 | pmhieu1801, CheetoBuri | W2 | P1 | [#23](https://github.com/pmhieu1801/cross_platform_final/issues/23) - Open |
 | R22 - Filter notes by labels | hnt0411 | pmhieu1801 | W2 | P1 | [#24](https://github.com/pmhieu1801/cross_platform_final/issues/24) - Open |
-| R23 - Enable and disable note-password protection | cheertoburi | pmhieu1801, hnt0411 | W3 | P0 | [#25](https://github.com/pmhieu1801/cross_platform_final/issues/25) - Open |
-| R24 - Unlock notes and change note passwords | cheertoburi | pmhieu1801, hnt0411 | W3 | P0 | [#26](https://github.com/pmhieu1801/cross_platform_final/issues/26) - Open |
-| R25 - Share, receive, and manage note permissions | cheertoburi | hnt0411, pmhieu1801 | W2 | P0 | Chuẩn bị cục bộ |
-| R26 - Real-time collaboration and modification | cheertoburi | hnt0411, pmhieu1801 | W3 | P1 | Chuẩn bị cục bộ |
-| R27 - AI Summary | cheertoburi | pmhieu1801, hnt0411 | W4 | P1 | Chuẩn bị cục bộ |
-| R28 - AI Question Answering with source-note references | cheertoburi | pmhieu1801, hnt0411 | W4 | P1 | Chuẩn bị cục bộ |
-| R29 - UI, UX, accessibility, and adaptive cross-platform interface | hnt0411 | pmhieu1801, cheertoburi | W1-W5 | P1 | Chuẩn bị cục bộ |
-| R30 - Flutter architecture, state management, and automated testing | pmhieu1801 | hnt0411, cheertoburi | W1-W5 | P0 | Chuẩn bị cục bộ |
-| R31 - Offline persistence and synchronization | cheertoburi, hnt0411 | pmhieu1801 | W3-W4 | P0 | Chuẩn bị cục bộ |
-| R32 - Cross-platform build and web deployment | pmhieu1801 | hnt0411, cheertoburi | W1-W5 | P0 | Chuẩn bị cục bộ |
+| R23 - Enable and disable note-password protection | CheetoBuri | pmhieu1801, hnt0411 | W3 | P0 | [#25](https://github.com/pmhieu1801/cross_platform_final/issues/25) - Open |
+| R24 - Unlock notes and change note passwords | CheetoBuri | pmhieu1801, hnt0411 | W3 | P0 | [#26](https://github.com/pmhieu1801/cross_platform_final/issues/26) - Open |
+| R25 - Share, receive, and manage note permissions | CheetoBuri | hnt0411, pmhieu1801 | W2 | P0 | Chuẩn bị cục bộ |
+| R26 - Real-time collaboration and modification | CheetoBuri | hnt0411, pmhieu1801 | W3 | P1 | Chuẩn bị cục bộ |
+| R27 - AI Summary | CheetoBuri | pmhieu1801, hnt0411 | W4 | P1 | Chuẩn bị cục bộ |
+| R28 - AI Question Answering with source-note references | CheetoBuri | pmhieu1801, hnt0411 | W4 | P1 | Chuẩn bị cục bộ |
+| R29 - UI, UX, accessibility, and adaptive cross-platform interface | hnt0411 | pmhieu1801, CheetoBuri | W1-W5 | P1 | Chuẩn bị cục bộ |
+| R30 - Flutter architecture, state management, and automated testing | pmhieu1801 | hnt0411, CheetoBuri | W1-W5 | P0 | Chuẩn bị cục bộ |
+| R31 - Offline persistence and synchronization | CheetoBuri, hnt0411 | pmhieu1801 | W3-W4 | P0 | Chuẩn bị cục bộ |
+| R32 - Cross-platform build and web deployment | pmhieu1801 | hnt0411, CheetoBuri | W1-W5 | P0 | Chuẩn bị cục bộ |
 
 ## Acceptance và dependency
 

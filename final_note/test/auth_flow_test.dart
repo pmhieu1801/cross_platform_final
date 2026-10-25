@@ -10,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_auth_repository.dart';
 
+import 'package:final_note/widgets/gradient_button.dart';
+
 void main() {
   late FakeAuthRepository fake;
   late ProviderContainer container;
@@ -60,7 +62,7 @@ void main() {
             .path,
         '/login',
       );
-      expect(find.byKey(const Key('email')), findsOneWidget);
+      expect(find.byKey(const Key('login-email')), findsOneWidget);
     },
   );
 
@@ -70,22 +72,29 @@ void main() {
       await signedOut(tester);
       container.read(appRouterProvider).go('/register');
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('submit')));
+      await tester.ensureVisible(find.byKey(const Key('register-submit')));
+      await tester.tap(find.byKey(const Key('register-submit')));
       await tester.pumpAndSettle();
-      expect(find.text('Nhập email hợp lệ.'), findsOneWidget);
-      expect(find.text('Nhập tên hiển thị.'), findsOneWidget);
-      expect(find.text('Nhập mật khẩu.'), findsOneWidget);
-      await tester.enterText(find.byKey(const Key('email')), 'a@example.test');
-      await tester.enterText(find.byKey(const Key('displayName')), 'Alice');
-      await tester.enterText(find.byKey(const Key('password')), 'abcdef');
+      expect(find.text('Enter your email address.'), findsOneWidget);
+      expect(find.text('Enter your display name.'), findsOneWidget);
+      expect(find.text('Create a password.'), findsOneWidget);
       await tester.enterText(
-        find.byKey(const Key('confirmation')),
+        find.byKey(const Key('register-email')),
+        'a@example.test',
+      );
+      await tester.enterText(find.byKey(const Key('register-name')), 'Alice');
+      await tester.enterText(
+        find.byKey(const Key('register-password')),
+        'abcdefgh',
+      );
+      await tester.enterText(
+        find.byKey(const Key('register-confirm-password')),
         'different',
       );
-      await tester.ensureVisible(find.byKey(const Key('submit')));
-      await tester.tap(find.byKey(const Key('submit')));
+      await tester.ensureVisible(find.byKey(const Key('register-submit')));
+      await tester.tap(find.byKey(const Key('register-submit')));
       await tester.pumpAndSettle();
-      expect(find.text('Mật khẩu nhập lại chưa khớp.'), findsOneWidget);
+      expect(find.text('Passwords do not match.'), findsOneWidget);
       expect(fake.registerCalls, 0);
     },
   );
@@ -97,14 +106,20 @@ void main() {
       container.read(appRouterProvider).go('/register');
       await tester.pumpAndSettle();
       await tester.enterText(
-        find.byKey(const Key('email')),
+        find.byKey(const Key('register-email')),
         ' a@example.test ',
       );
-      await tester.enterText(find.byKey(const Key('displayName')), ' Alice ');
-      await tester.enterText(find.byKey(const Key('password')), 'abcdef');
-      await tester.enterText(find.byKey(const Key('confirmation')), 'abcdef');
-      await tester.ensureVisible(find.byKey(const Key('submit')));
-      await tester.tap(find.byKey(const Key('submit')));
+      await tester.enterText(find.byKey(const Key('register-name')), ' Alice ');
+      await tester.enterText(
+        find.byKey(const Key('register-password')),
+        'abcdefgh',
+      );
+      await tester.enterText(
+        find.byKey(const Key('register-confirm-password')),
+        'abcdefgh',
+      );
+      await tester.ensureVisible(find.byKey(const Key('register-submit')));
+      await tester.tap(find.byKey(const Key('register-submit')));
       await tester.pumpAndSettle();
       expect(fake.registerCalls, 1);
       expect(fake.receivedName, 'Alice');
@@ -124,13 +139,21 @@ void main() {
       await signedOut(tester);
       fake.pending = Completer<void>();
       fake.failure = AuthFailure(authErrorMessage('network-request-failed'));
-      await tester.enterText(find.byKey(const Key('email')), 'a@example.test');
-      await tester.enterText(find.byKey(const Key('password')), 'abcdef');
-      await tester.tap(find.byKey(const Key('submit')));
+      await tester.enterText(
+        find.byKey(const Key('login-email')),
+        'a@example.test',
+      );
+      await tester.enterText(
+        find.byKey(const Key('login-password')),
+        'abcdefgh',
+      );
+      await tester.tap(find.byKey(const Key('login-submit')));
       await tester.pump();
       expect(
-        tester.widget<FilledButton>(find.byKey(const Key('submit'))).onPressed,
-        isNull,
+        tester
+            .widget<GradientButton>(find.byKey(const Key('login-submit')))
+            .loading,
+        isTrue,
       );
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
@@ -140,12 +163,14 @@ void main() {
       expect(find.textContaining('Không kết nối được mạng.'), findsOneWidget);
       expect(find.textContaining('Firebase UID:'), findsNothing);
       expect(
-        tester.widget<FilledButton>(find.byKey(const Key('submit'))).onPressed,
-        isNotNull,
+        tester
+            .widget<GradientButton>(find.byKey(const Key('login-submit')))
+            .loading,
+        isFalse,
       );
       fake.failure = null;
       fake.pending = null;
-      await tester.tap(find.byKey(const Key('submit')));
+      await tester.tap(find.byKey(const Key('login-submit')));
       await tester.pumpAndSettle();
       expect(find.text('Firebase UID: uid-A'), findsOneWidget);
     },
@@ -165,7 +190,7 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.textContaining('Firebase UID:'), findsNothing);
-      expect(find.byKey(const Key('email')), findsOneWidget);
+      expect(find.byKey(const Key('login-email')), findsOneWidget);
       fake.events.add(userB);
       await tester.pumpAndSettle();
       expect(find.text('Firebase UID: uid-B'), findsOneWidget);

@@ -6,7 +6,7 @@ body:
     id: owner
     attributes:
       label: Owner
-      description: M1 pmhieu1801 / M2 hnt0411 / M3 cheertoburi
+      description: M1 pmhieu1801 / M2 hnt0411 / M3 CheetoBuri
     validations:
       required: true
   - type: input

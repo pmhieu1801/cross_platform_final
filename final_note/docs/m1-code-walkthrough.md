@@ -34,7 +34,7 @@ Backend không biết người dùng có đi qua guard không. Người ta có t
 
 ## 5. Form và busy
 
-`auth_form.dart`: TextEditingController giữ input trong đời widget; dispose giải phóng chúng khi rời form. Validation kiểm email, tên, password đăng ký và confirmation trước request. Không trim password vì khoảng trắng có thể là ký tự người dùng chọn.
+`auth_form.dart` là adapter provider/router; `screens/login_screen.dart` và `screens/register_screen.dart` giữ TextEditingController trong đời widget và dispose khi rời form. Các screen nhận callback, isLoading/error từ adapter để giữ UI tách Firebase. Validation kiểm email, tên, password đăng ký và confirmation trước request. Không trim password vì khoảng trắng có thể là ký tự người dùng chọn.
 
 `AuthActions._run`: đặt busy trước await, chặn gọi lặp ngay cả khi UI chưa kịp repaint, đổi lỗi thành thông báo, luôn kết thúc busy khi request hoàn tất/lỗi. UI disable cả field/nút khi bận. Không tự dùng timeout rồi cho gửi request thứ hai khi SDK vẫn còn thao tác tạo account chưa hủy được.
 
@@ -52,6 +52,8 @@ Không tạo session chỉ vì Future hoàn tất: nguồn sự thật vẫn là
 - Chạy Firebase thật: tạo user, đối chiếu UID, reload/restart/logout/Back/mạng trên Web/Android; mới chứng minh luồng tích hợp thực tế.
 - Gate W1 còn cần nhóm review/chốt contracts, không thể được thay bằng số lượng test.
 
+Ba file integration có mục đích khác nhau: auth_real_test gõ/bấm form thật và đối chiếu Firebase UID; auth_persistence_test giữ session ở phase seed rồi đối chiếu UID ở tiến trình verify; auth_network_test gọi controller/SDK khi guest emulator mất mạng và kiểm tra lỗi/loading trên UI. Persistence dùng --no-uninstall vì gỡ app sẽ xóa dữ liệu phiên; force-stop mới đúng tình huống đóng app cần kiểm tra. Password test sinh ngẫu nhiên chỉ ở RAM, chỉ UID công khai được chuyển giữa hai tiến trình.
+
 ## Tự kiểm tra trước vấn đáp
 
 1. Vì sao loading không được coi là signed-out?
@@ -61,4 +63,4 @@ Không tạo session chỉ vì Future hoàn tất: nguồn sự thật vẫn là
 5. Provider nào phải watch để không giữ listener tài khoản A khi đăng nhập B?
 6. Tại sao API key client Firebase được dùng trong app nhưng service-account key không được?
 
-Mở source theo thứ tự: main → app → domain/auth_repository → data/firebase_auth_repository → application/auth_providers → routing/session_guard → routing/app_router → auth_form → home → tests.
+Mở source theo thứ tự: main → app/theme → domain/auth_repository → data/firebase_auth_repository → application/auth_providers → routing/session_guard → routing/app_router → auth_form → screens/login_screen và register_screen → home → tests.

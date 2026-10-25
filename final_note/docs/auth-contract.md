@@ -59,14 +59,14 @@ UI consumer phải bỏ kết quả trước khi loading/error hoặc session kh
 
 ## Contracts dữ liệu cần owner xác nhận
 
-Không có contract có sẵn trước lượt triển khai. Bảng dưới là **đề xuất để review**, chưa tạo Dart models/collections/rules/migration.
+Đã đối chiếu lại main `3486542` khi tích hợp PR #28. Nhóm đã có `lib/models/note.dart`: id, title, content, labels (List<String>), colorIndex, updatedAt, isPinned và pinnedAt; `createDemoNotes()` và NotesHomeScreen hiện dùng dữ liệu mẫu trong bộ nhớ. Model chưa có ownerUid, NoteRepository, Label/Share/Attachment/Sync contracts. M1 giữ nguyên model/Notes UI và không tự thêm schema/backend. Các điểm bổ sung dưới đây là **đề xuất để owner review**, chưa phải quyết định nhóm.
 
 | Contract | Owner / review | Đề xuất tối thiểu và câu hỏi chốt |
 | --- | --- | --- |
 | UID | M1; M2/M3 review | Firebase Auth UID; string không đổi; email chỉ để tìm user khi chia sẻ, backend resolve UID an toàn |
 | User | M1 + M3 | Auth giữ email/displayName/verified; profile Firestore có cần users/{uid} không? ai được đọc trường nào? Không đưa password/token vào document |
-| Note / NoteRepository | M2; M3 review | id, ownerUid, title/content, createdAt/updatedAt/version? streams scoped theo UID; hooks autosave và shared notes; cần chốt kiểu rich text/timestamp/delete |
-| Label | M2; M3 review | id, ownerUid, name; note tham chiếu label ID; rename không làm mất note; chốt xóa label và quan hệ shared note |
+| Note / NoteRepository | M2; M3 review | Giữ Note hiện có; cần owner chốt ownerUid, createdAt/version, UID-scoped repository stream, autosave/shared behavior, timestamp/delete. Chưa áp migration hoặc thêm trường tùy ý |
+| Label | M2; M3 review | Note hiện chứa List<String> labels và demo dùng tên label. Cần chốt giữ tên hay chuyển ID, ownership, rename/delete/shared-note semantics và migration trước khi triển khai |
 | Share | M3; M2 review | noteId, recipientUid, permission read/edit, revoke semantics; server/rules là nguồn quyền; không dựa vào việc ẩn nút |
 | Lock | M3; M2 review | password-note tách Auth password; không lưu plaintext; chốt unlock lease, backend canRead/canEdit, key/cache khi logout và revoke |
 | Attachment | M2 + M3 | id, noteId, storagePath, MIME, size, upload state; private path; M3 chốt authorization/download behavior; không public URL vĩnh viễn |
@@ -77,5 +77,11 @@ Thay đổi schema chung cần PR liên quan migration, rules và review owner. 
 ## Review bắt buộc
 
 - hnt0411 (M2): UX form, mobile layout, cách nhận UID/session, cancellation/local partition, Note/Label/Repository/Attachment contract.
-- cheertoburi (M3): guard fail-closed, SDK Auth/persistence, UID isolation, backend boundaries, User/Share/Lock/Sync/rules proposal. M1 cần xác minh collaborator access M3.
-- Không có review của hai người trong phiên này; không tự phê duyệt.
+- CheetoBuri (M3): guard fail-closed, SDK Auth/persistence, UID isolation, backend boundaries, User/Share/Lock/Sync/rules proposal. Đã đọc được collaborator permission: read; M2 hnt0411: write.
+- Chưa có review/chốt contract từ hai owner. PR #28 là nơi ghi câu trả lời và review; không tự phê duyệt.
+
+## Tích hợp giao diện chung ngày 25/10/2026
+
+AuthForm là adapter Riverpod giữa router và LoginScreen/RegisterScreen trên main. Hai widget UI nhận callback onSubmit, callback chuyển trang, isLoading và error; không tự tạo session hoặc chuyển tới home khi Future hoàn tất. Thay delay placeholder bằng callback tới AuthActions; giữ thiết kế Midnight Glow và các widget/theme/fonts của nhóm. Khi không được nối callback (ví dụ preview widget độc lập), form chỉ báo chưa cấu hình, không đăng nhập giả.
+
+Main vẫn bọc ProviderScope; NoteFlowApp dùng AppTheme light/dark, mặc định dark theo main. Route /home vẫn là private Auth shell W1; NotesHomeScreen và demo model được giữ nguyên để owner tích hợp repository thực ở bước tiếp theo. Validation dùng Validators chung của UI; password đăng ký tối thiểu 8 ký tự, đồng thời Firebase vẫn có quyền từ chối nếu policy backend chặt hơn.

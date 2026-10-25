@@ -1,86 +1,96 @@
-# M1 W1 - kiểm chứng và bàn giao
+# M1 W1 — kiểm chứng và bàn giao
 
-Evidence runtime/build ghi nhận **24/10/2026**; tài liệu và kiểm tra source cập nhật **25/10/2026, Asia/Bangkok**. M1 cho biết đang cuối W1; chưa có nguồn giảng viên/e-learning xác nhận deadline hoặc khoảng 4 tuần chính thức.
+Cập nhật **25/10/2026, Asia/Bangkok**. Web runtime kiểm tra ngày 24/10; tích hợp UI chung và Android runtime kiểm tra ngày 25/10. Deadline/khoảng 4 tuần chính thức: **chưa xác nhận** từ giảng viên/e-learning.
 
-## Kết luận có giới hạn
+## Kết luận
 
-Auth/guard/forms và điểm tích hợp UID đã triển khai. Web đã kiểm tra với Firebase thật; build Web release và Android debug đã thành công từ cùng source. **Chưa xác nhận hành vi Firebase trên Android, chưa đạt Gate W1, chưa Done theo DoD nhóm.** M2/M3 chưa review/chốt các contract dữ liệu. Không có note repository/cache/listener nghiệp vụ để claim đã kiểm tra isolation toàn dự án.
+Firebase Auth thật đã chạy trên Web và Android từ cùng Flutter source. Android đã qua form đăng ký/đăng nhập/đăng xuất, UID/banner, lỗi xác thực, đổi tài khoản, khôi phục phiên qua hai tiến trình và lỗi mất mạng thật. **Gate W1 còn chờ M2/M3 review và chốt contracts; chưa Done theo DoD nhóm, chưa merge vào main.**
 
-## Môi trường
+Không có NoteRepository/cache/listener nghiệp vụ trong phần M1 để tuyên bố đã kiểm tra isolation toàn dự án. Model/Notes UI demo trên main được giữ nguyên, chưa nối vào private Auth shell.
 
-- Windows 11; Flutter 3.47.0 stable / Dart 3.13.0.
-- Android SDK 36.0.0, platform 34 được Gradle cài cho Firebase plugin; JBR 25.0.2. Licenses đã được doctor xác nhận.
-- Web chạy bản release tại `http://127.0.0.1:5137/` trong in-app browser. Đây là local runtime, chưa phải public HTTPS deployment.
-- AVD `test_flutter`, serial emulator-5554, không có thiết bị vật lý. Đã thử headless, restart ADB và cold boot/software renderer. Emulator có lúc báo device, sau đó offline hoặc không đọc được properties.
-- Firebase thật: `noteflow-3f90d`; Web/Android app IDs trong README/config. Console xác nhận Spark và Email/Password Enabled. Không tạo Firestore/Storage rules hoặc cho phép truy cập công khai.
+## Môi trường và source
 
-## Lệnh và kết quả
+- Windows 11; Flutter 3.47.0 / Dart 3.13.0; Android SDK/build-tools 36.0.0, JBR 25.0.2.
+- Firebase thật noteflow-3f90d, Email/Password Enabled, Spark. Config client trong config/; không có Admin key, không mở rules.
+- Web release local http://127.0.0.1:5137/; chưa kiểm tra hosting HTTPS công khai.
+- Android AVD test_flutter, serial emulator-5554, API 37; user mở từ Android Studio Device Manager vào Home, ADB đọc boot_completed=1. Không có thiết bị vật lý.
+- Nhánh pmhieu1801/m1-week1-auth tích hợp main 3486542 (PR #1/#2/#27). Giữ theme/fonts/shared widgets, Note model, NotesHomeScreen và assertion test của nhóm. Login/Register Midnight Glow nối callback vào Firebase Auth qua adapter.
 
-| Kiểm tra | Lệnh đã chạy | Kết quả |
+## Kiểm tra tự động
+
+Chạy từ app root; dùng config client thật. Test cô lập vẫn dùng fake test-only.
+
+| Kiểm tra | Lệnh / cách chạy | Kết quả |
 | --- | --- | --- |
-| Format | `dart format --output=none --set-exit-if-changed lib test integration_test` | PASS: 16 files, 0 changed |
-| Analyze | `flutter analyze --no-pub` | PASS: No issues found; lần cuối gồm integration test source |
-| Test cô lập | `flutter test --no-pub test --reporter expanded` | PASS: 12/12; dùng fake test-only, không chứng minh Firebase thật |
-| Web build | `flutter build web --release --dart-define-from-file=config/firebase.web.json` | PASS; build/web; Wasm dry run cũng thành công; chạy thực tế riêng như bảng dưới |
-| Android build | `flutter build apk --debug --dart-define-from-file=config/firebase.android.json` | PASS; build/app/outputs/flutter-apk/app-debug.apk; chưa claim native release hoặc install/runtime pass |
-| Integration Android | `flutter test --no-pub integration_test/auth_real_test.dart -d emulator-5554 --device-timeout 20 --dart-define-from-file=config/firebase.android.json --reporter expanded` | CHƯA PASS: tool/device bị chặn; xem chi tiết dưới |
+| Format | `dart format --output=none --set-exit-if-changed lib test integration_test` | **PASS: 40 files, 0 changed**, lần cuối 25/10 |
+| Analyze | `flutter analyze --no-pub` | No issues found sau tích hợp |
+| Unit/widget | `flutter test --no-pub test --reporter expanded` | **31/31 PASS**; giữ test main, không coi là Firebase evidence |
+| Web release | `flutter build web --release --no-pub --dart-define-from-file=config/firebase.web.json` | PASS sau tích hợp UI |
+| Android debug | `flutter build apk --debug --no-pub --dart-define-from-file=config/firebase.android.json` | PASS sau tích hợp UI; không phải bản release ký để nộp |
+| Android Auth thật | `flutter test --no-pub integration_test/auth_real_test.dart -d emulator-5554 --dart-define-from-file=config/firebase.android.json --reporter expanded` | **1/1 PASS**, khoảng 42 giây runtime; cleanup hai account của lượt test |
+| Android restore seed | `flutter test --no-pub --no-uninstall integration_test/auth_persistence_test.dart -d emulator-5554 --dart-define-from-file=config/firebase.android.json --dart-define=AUTH_PERSISTENCE_PHASE=seed --reporter expanded` | **1/1 PASS**, 9 giây runtime; để session cho verify |
+| Android restore verify | Cùng lệnh seed, đổi phase thành verify, thêm `--dart-define=AUTH_EXPECTED_UID=<UID-seed>`, sau `adb -s emulator-5554 shell am force-stop com.example.final_note` | **1/1 PASS**, 5 giây runtime; đúng UID, home hiện, cleanup account |
+| Android offline | `flutter test --no-pub integration_test/auth_network_test.dart -d emulator-5554 --dart-define-from-file=config/firebase.android.json --reporter expanded` sau tắt Wi-Fi/mobile data trong guest | **1/1 PASS**, 4 giây runtime; khôi phục Wi-Fi=1/mobile-data=1 trong finally |
 
-Build đầu tiên không có config cũng thành công nhưng **không** được dùng làm bằng chứng backend. Hai build được ghi ở bảng là các build sau khi có config thật. Sau đó chỉ thêm dev dependency integration_test/test và tài liệu; analyzer/test cô lập đã chạy lại. Build artifacts không đưa lên Git.
+Persistence đối chiếu UID công khai 6eCWEinwjKWxmT9o6U5QQT2zaOF2 ở seed và verify. Không truyền password/token giữa tiến trình; password ngẫu nhiên chỉ trong RAM. Bài này kiểm tra đóng tiến trình/mở lại khi giữ dữ liệu app, không kiểm tra gỡ/cài mới hoặc reboot emulator.
 
-Flutter pub get đã resolve thêm 8 dependency của integration_test nhưng cảnh báo Windows cần symlink support/Developer Mode; không tự đổi thiết lập máy. Dùng --no-pub với package config đã resolve. Lần Android test tiếp theo lỗi: `Error 1 retrieving device properties`, `protocol fault (couldn't read status): connection reset`; Flutter nhận emulator là `Android null (API null) (unsupported)` rồi báo `No supported devices found`. Cold boot sau đó vẫn cần đọc properties ổn định trước khi có thể claim test chạy. Không bỏ assertion hoặc làm yếu test để xanh.
+Offline test gọi production AuthActions/Firebase SDK, chặn action trùng khi pending và kiểm tra UI lỗi, nút hết loading, UID null. Không mock mạng/repository. Gõ và bấm nút thật được kiểm tra ở auth_real_test; offline test gọi controller trực tiếp. Chưa cắt mạng thật trên Web.
 
-Gradle build đã báo cảnh báo tương thích tương lai KGP ở firebase_auth/firebase_core, và JDK native access warning; build hiện tại vẫn thành công. Không sửa dependency Flutter/Firebase hoặc SDK chỉ để giấu warning.
+## Ca nghiệm thu
 
-## Ca nghiệm thu M1
-
-| # | Yêu cầu | Bằng chứng / bước thực hiện | Trạng thái |
+| # | Yêu cầu | Evidence | Trạng thái/giới hạn |
 | --- | --- | --- | --- |
-| 1 | Signed-out mở app/private URL bị chặn | Web mở `/#/home` → `/#/login`; guard unit/widget tests gồm route lạ và direct route | PASS Web + tests; Android behavior chưa kiểm chứng |
-| 2 | Khởi tạo không lộ private UI | Web reload đã quan sát `/session` và dòng “Đang xác định phiên đăng nhập…” trước home; widget test trì hoãn first event; provider test refresh giữ previous user nhưng UID vẫn null | PASS Web + tests; Android pending |
-| 3 | Register thật, auto-login, UID, banner | Web đăng ký A, hiện W1 Web Test và UID `ncPrIHxrQAglYcZiALLaCpfaIKm1`; Console Users đối chiếu đúng UID; banner xuất hiện | PASS Web Firebase thật; Android pending; activation email W2 |
-| 4 | Input sai / email trùng | Widget test bắt email/tên/password/confirmation sai trước request; Web dùng lại email A → “Email này đã được đăng ký. Hãy đăng nhập.”, vẫn ở register | PASS validation tests + Web duplicate; chưa test mọi policy Firebase |
-| 5 | Login đúng/sai | Web password sai → “Email hoặc mật khẩu không đúng.” và ở login; nhập đúng → home cùng UID A | PASS Web Firebase thật; Android pending |
-| 6 | Khôi phục phiên | Web reload → session checking → cùng UID A và tên A; SDK default persistence, không lưu password riêng | PASS Web; Android đóng/mở chưa kiểm chứng |
-| 7 | Mạng/gửi lặp | Unit/widget giữ request pending, submit/keyboard duplicate chỉ gọi 1 lần; fake network error trả UI về enabled rồi retry thành công | PASS cô lập; **chưa thử cắt mạng thật trên Web/Android** |
-| 8 | Logout rồi Back/URL cũ | Web logout → login; Back và mở lại `/#/home` vẫn login, không có UID/private content; widget cũng kiểm pop + direct path | PASS Web + tests; Android pending |
-| 9 | A → B không giữ A | Web logout A, đăng ký B → tên B, UID khác `ctIxGbOjqDaUIZUTI9MhZmn3b1A3`, không còn A; UID B đã đối chiếu Console Users; fake dependent-provider test chứng minh dispose/close lease A/B | PASS phần M1 đã tích hợp; M2/M3 listener/cache chưa tồn tại/chưa kiểm chứng |
+| 1 | Signed-out bị chặn private route | Web /#/home → login; Android đi /home trước login và sau logout | PASS Web + Android; Android external App Links chưa cấu hình W1 |
+| 2 | Checking không lộ private UI | Widget trì hoãn first event; provider loại dữ liệu cũ trong loading/error; Web quan sát /session khi reload | PASS test/Web; Android có startup thật, chưa cố tình trì hoãn native stream |
+| 3 | Register thật, auto-login, UID/banner | Web UI + Console UID; Android form thật, SDK email/displayName/UID khớp UI, banner | PASS hai nền tảng; activation đầy đủ W2 |
+| 4 | Input sai/email trùng | Shared Validators/widget tests; Web/Android duplicate trả lỗi, session null | PASS phạm vi đã thử, không claim mọi Firebase policy |
+| 5 | Login đúng/sai | Web/Android sai → lỗi/null; retry đúng → cùng UID | PASS Firebase thật |
+| 6 | Khôi phục phiên | Web reload cùng UID; Android seed → force-stop → verify cùng UID | PASS phạm vi trên; chưa reboot hệ điều hành |
+| 7 | Mất mạng/gửi lặp | Android offline + controller/UI thật; fake pending/duplicate/retry | PASS Android thật + cô lập; Web offline thật chưa thử |
+| 8 | Logout/Back/URL cũ | Web browser Back/direct URL vẫn login; Android logout + go('/home') không có UID/private content; widget pop tests | PASS các bước này; Android nút Back hệ thống chưa thử riêng |
+| 9 | A → B không giữ A | Android A/logout/B, UID khác, lease A đóng; Web A→B; dependent-provider dispose tests | PASS M1; cache/listener M2/M3 cần tích hợp/test riêng |
 
-Hai account Web test dùng địa chỉ `@example.test`, password ngẫu nhiên chỉ ở RAM phiên kiểm thử; có thể còn trong Console cho owner đối chiếu, không phải tài khoản chấm bài. Không có password trong source/log/evidence bàn giao. Android integration test được viết để tạo/cleanup đúng account của nó, không xóa user có sẵn; hiện chưa có kết quả pass.
+## Evidence Web giữ lại
 
-## Evidence giữ lại
+Android production APK đã được cài/mở sau khi chạy test; [ảnh màn hình signed-out](evidence/android-signed-out.png) ngày 25/10 xác nhận UI Midnight Glow đang chạy. Ảnh login không tự chứng minh đăng ký/persistence; các kết quả đó đến từ integration tests phía trên.
 
-- [Email/Password Enabled trên Console](evidence/firebase-email-password-enabled.jpg)
-- [Console có hai account test; UID trong ảnh được hiển thị rút gọn](evidence/firebase-real-user.jpg). Giá trị UID đầy đủ trong bảng nghiệm thu đã được đối chiếu qua nội dung văn bản của Console.
-- [Web sau reload, session được phục hồi](evidence/web-restored-session.jpg)
-- [Logout/URL riêng bị chuyển về login](evidence/web-logout-guard.jpg)
-- [Tài khoản B sau khi đổi A](evidence/web-account-b.jpg)
+Ảnh ngày 24/10 dùng UI trước tích hợp Midnight Glow, chỉ là evidence backend/session của lần đó. UI chung đã qua widget/Android integration; chưa chạy lại toàn bộ Web end-to-end trên UI mới.
 
-Chỉ giữ ảnh liên quan kiểm chứng, không commit ảnh render PDF/build/cache/log thô. Ảnh không thay được các ca behavior chưa chạy; không có video demo hoặc GitHub Insights evidence ở W1 này.
+- [Email/Password Enabled](evidence/firebase-email-password-enabled.jpg)
+- [Console Users, UID rút gọn](evidence/firebase-real-user.jpg)
+- [Web khôi phục session](evidence/web-restored-session.jpg)
+- [Web logout/guard](evidence/web-logout-guard.jpg)
+- [Web đổi sang B](evidence/web-account-b.jpg)
+
+Web A UID ncPrIHxrQAglYcZiALLaCpfaIKm1, B UID ctIxGbOjqDaUIZUTI9MhZmn3b1A3 đã đối chiếu Console. Hai account m1-web-...@example.test có thể còn cho owner đối chiếu, không phải grading accounts. Lần persistence lỗi trước khi sửa runner có thể để lại account m1-persistence-...@example.test; owner có thể kiểm tra/xóa đúng account test trong Console. Không có password/admin key trong bàn giao; không tự xóa user ngoài test.
+
+## Chẩn đoán và giới hạn
+
+- AVD headless trước đó không trả getprop/boot hoàn chỉnh. Sau khi user mở Device Manager, ADB hoạt động; không đổi Windows security/virtualization, không wipe AVD.
+- Native IME/scroll làm input/tap ban đầu không ổn định. Test thêm chờ input, dismiss focus, ensureVisible và bắt buộc hit-testable trước tap; giữ toàn bộ assertion, không gọi thẳng onPressed để né UI.
+- Persistence lần đầu sai vì Flutter test mặc định uninstall app, xóa dữ liệu phiên. Dùng **--no-uninstall ở cả hai phase**, force-stop giữa chúng rồi test pass. Đây là sửa fixture đúng hành vi đóng/mở.
+- Gradle có cảnh báo KGP tương lai ở firebase_auth/firebase_core và JDK native access; build hiện tại pass. Không đổi SDK/dependency để giấu warning.
+- Formatter chỉnh khoảng trắng ở một số file UI/test từ main; giữ logic/behavior và toàn bộ assertion test. Hai build ở bảng đã chạy lại sau lượt source cuối, APK đã trở lại entrypoint production sau khi integration runner dùng test target.
+- Windows pub get từng cảnh báo symlink support; không tự đổi Developer Mode. --no-pub dùng sau khi resolve dependency.
+- Không có public HTTPS deployment, release signing, thiết bị Android vật lý hoặc video demo trong lượt W1 này.
 
 ## W1 requirement → evidence → trạng thái
 
 | Hạng mục | Evidence | Trạng thái |
 | --- | --- | --- |
-| Một Flutter source Web/Android | cùng lib/main.dart; hai build có config thật | Implemented + build verified; Android runtime pending |
-| Auth thật / UID | Firebase adapter + Web UI + Console Users | Verified Web; Android pending |
-| Session loading / restore / guard | providers, session_guard, 12 tests + Web reload/logout/deep link | Verified phần M1/Web; Android pending |
-| Register/login/logout form | 4 inputs register, Firebase SDK, error/busy, Web thật và widget tests | Implemented + Web verified; full R1 activation còn W2 |
-| Banner unverified | emailVerified từ SDK, ảnh Web | Verified W1 slice; activation đầy đủ W2 |
-| Repo/templates/backlog | root .github; rubric-backlog có 32 tiêu chí; 24 issue published, 8 prepared do lệnh tiếp bị từ chối | Prepared/published một phần; chưa Done/review |
-| UID + Note/Label/Share/Attachment/Sync contract | auth-contract.md có API thật và bảng đề xuất schema | Chờ M2/M3 review/chốt; chưa Gate |
-| User/Lock kickoff | proposal/owner trong auth-contract.md | Chờ owners, chưa tạo schema/rules |
-| Deadline / 4 tuần chính thức | đề gốc mục V xác nhận quy tắc, M1 nói cuối W1 | Ngày/khoảng tuần chính thức chưa xác nhận |
+| Một source Web/Android | lib/main.dart, hai build, Web runtime/Android integration | Đã triển khai/kiểm chứng theo phạm vi trên |
+| Auth thật/UID/restore/guard | Firebase adapter, 31 tests, Web evidence, Android Auth/persistence/offline | Đã kiểm chứng M1; giới hạn ở bảng nghiệm thu |
+| Forms/banner | Midnight Glow adapter + native UI tests | Đã triển khai; full activation W2 |
+| Repo/templates/backlog | root .github; 32 rubric backlog, 24 issue published theo snapshot 24/10 | Chuẩn bị/publish một phần; R25–R32 local, chưa DoD |
+| UID/Note/Label/Share/Attachment/Sync | auth-contract.md có API thật, model main và câu hỏi owner | **Chờ M2/M3 chốt**, Gate chưa đạt |
+| User/Lock kickoff | proposal/owner trong contract | Chờ owner, chưa tạo schema/rules |
+| Cross-review | PR #28 | Chờ review; không tự approve/merge |
+| Deadline/4 tuần | quy tắc đề gốc + M1 nói cuối W1 | Ngày/khoảng tuần chính thức chưa xác nhận |
 
-## Cần review và phần tiếp theo
+## Bàn giao Git và review
 
-hnt0411: UI form, mobile layout, Note/Label/Repository/Attachment contracts, provider cancellation và partition cache. cheertoburi: Firebase/UID isolation, guard vs rules, User/Share/Lock/Sync contracts và backend authorization; M1 cần kiểm tra collaborator invitation/quyền M3.
+Hai commit thực chất đã push: [5178a89 — Auth foundation](https://github.com/pmhieu1801/cross_platform_final/commit/5178a892e213329420df3e842dc8a9bb3f7516e1) và [1b72868 — test/contracts](https://github.com/pmhieu1801/cross_platform_final/commit/1b72868d620a3887a89af57655f0bc742d74bec6). Lượt tiếp theo tích hợp main và bổ sung bằng chứng Android, giữ lịch sử nhóm, không chia nhỏ để đủ số lượng/đổi identity/ngày.
 
-M1 cần một Android device/AVD có ADB ổn định để chạy integration test, restart session, Back/deep link và network failure thực tế. Cả Web/Android còn thiếu ca cắt mạng thật. Chưa có review M2/M3 hoặc merge; các issue vẫn Open, chưa tạo PR. Activation links, reset/change password, profile/avatar/preferences, Notes/sharing/lock/realtime/attachments/offline/AI không được tự nhận hoàn thành ở W1 M1.
+[PR #28](https://github.com/pmhieu1801/cross_platform_final/pull/28) là nơi yêu cầu hnt0411/CheetoBuri review. M3 đúng username CheetoBuri (read permission); M2 có write. Xác nhận username không phải chốt contract. Không merge khi thiếu review.
 
-## Bàn giao lên Git
-
-Nền tảng Auth được push trong commit [5178a89](https://github.com/pmhieu1801/cross_platform_final/commit/5178a892e213329420df3e842dc8a9bb3f7516e1), nhánh pmhieu1801/m1-week1-auth. Phần tiếp theo bổ sung SDK integration_test và lockfile, test Firebase thật opt-in, README đầy đủ, contract/plan/walkthrough, backlog và các ảnh evidence trên đây; root .github có Issue/PR templates. PR template dùng Refs để việc bàn giao W1 không tự đóng một issue rubric còn acceptance của tuần sau.
-
-Không đưa file desktop tự sinh, build/cache/tmp hoặc bản nháp issue trùng lặp vào commit. Không sửa Git identity/ngày/lịch sử. Chưa có PR/review/merge hoặc xác nhận Gate W1. Một test tích hợp đã viết và được analyzer kiểm tra vẫn chưa được tính là test chạy thành công trên thiết bị.
-
-Kiểm tra lại ngày 25/10/2026 trước commit bàn giao: `flutter analyze --no-pub` không có issue; `flutter test --no-pub test --reporter expanded` qua 12/12; format lib/test/integration_test có 16 file, 0 thay đổi. Đã sửa teardown của test tích hợp để đăng ký cleanup trước khởi tạo, ghi nhận account sớm, kiểm tra UID trước xóa và báo lỗi cleanup riêng với lỗi assertion. README/docs không có relative link trỏ tới file thiếu; phần source/tài liệu được chọn không có private-key hoặc service-account fields. Không chạy lại build hoặc test Android thật trong lượt chuẩn bị commit này; các giới hạn runtime phía trên vẫn còn.
+Không commit build/APK/cache/AVD/log thô/tmp hoặc desktop registrants tự sinh. Không sửa Note schema/rules/migration. Activation links/reset/change password/profile/avatar/preferences thuộc W2; Notes/sharing/lock/realtime/attachments/offline sync/AI thuộc owners khác.

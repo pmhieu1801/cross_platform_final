@@ -11,7 +11,7 @@ App root là thư mục này; Git repo root là thư mục cha `cross_platform_f
 - `features/auth/domain`: AuthUser, AuthRepository và lỗi.
 - `features/auth/data`: adapter duy nhất gọi Firebase SDK.
 - `features/auth/application`: bootstrap, session, UID/account lease và action state.
-- `features/auth/presentation`: form, màn hình chờ/lỗi.
+- `features/auth/presentation`: adapter AuthForm nối provider/router vào form chung và màn hình chờ/lỗi. `screens/login_screen.dart`/`register_screen.dart` giữ UI Midnight Glow, shared Validators/widgets/fonts từ main; mặc định theme dark.
 - `routing`: guard/router. `features/home`: private shell W1, chưa có Notes.
 - `test`: test cô lập dùng fake test-only. `integration_test`: opt-in với Firebase thật.
 
@@ -54,7 +54,7 @@ flutter build apk --debug --dart-define-from-file=config/firebase.android.json
 
 Web dùng hash URLs: `/#/login`, `/#/register`, `/#/home`. Không dùng /home path khi chưa có rewrite/path strategy. Khi signed-out mở /#/home phải về login.
 
-Android device ID tùy máy, xem flutter devices. Windows có thể yêu cầu quyền symlink/Developer Mode khi pub get; owner tự thiết lập theo chính sách máy. --no-pub chỉ dùng sau khi dependency đã resolve. Lượt này có build Web release/APK debug thành công; xem verification cho giới hạn integration và runtime Android. Không claim integration pass từ build xanh.
+Android device ID tùy máy, xem flutter devices. Windows có thể yêu cầu quyền symlink/Developer Mode khi pub get; owner tự thiết lập theo chính sách máy. --no-pub chỉ dùng sau khi dependency đã resolve. Web release/APK debug đã build thành công. Android AVD test_flutter (API 37) đã qua Auth thật, restore session và lỗi mất mạng; xem verification để biết giới hạn từng ca.
 
 Test thật Android tạo hai account tạm với password sinh trong RAM, cleanup chỉ account vừa tạo, không dùng grading account:
 
@@ -62,7 +62,23 @@ Test thật Android tạo hai account tạm với password sinh trong RAM, clean
 flutter test --no-pub integration_test/auth_real_test.dart -d emulator-5554 --dart-define-from-file=config/firebase.android.json --reporter expanded
 ```
 
-Không đặt password account thật vào tham số lệnh/source/screenshot/tài liệu. Hai account m1-web-...@example.test của Web test thủ công có thể còn trong Console để đối chiếu; không dùng làm grading accounts. Test tự động không xóa user có sẵn.
+Test khôi phục phiên chạy **hai tiến trình**, giữ dữ liệu app bằng --no-uninstall ở cả hai lượt. Seed in UID công khai; thay UID bên dưới bằng đúng giá trị đó, không dùng password/token:
+
+```powershell
+flutter test --no-pub --no-uninstall integration_test/auth_persistence_test.dart -d emulator-5554 --dart-define-from-file=config/firebase.android.json --dart-define=AUTH_PERSISTENCE_PHASE=seed --reporter expanded
+adb -s emulator-5554 shell am force-stop com.example.final_note
+flutter test --no-pub --no-uninstall integration_test/auth_persistence_test.dart -d emulator-5554 --dart-define-from-file=config/firebase.android.json --dart-define=AUTH_PERSISTENCE_PHASE=verify '--dart-define=AUTH_EXPECTED_UID=<UID-seed>' --reporter expanded
+```
+
+Nếu adb chưa có trong PATH, dùng platform-tools/adb.exe trong Android SDK. Chỉ chạy verify khi seed pass. Gỡ app giữa hai lượt sẽ xóa session và làm sai điều kiện kiểm thử. Verify xóa đúng account test sau khi đối chiếu UID.
+
+Test lỗi mạng: ghi nhận trạng thái Wi-Fi/mobile data của emulator, tắt cả hai trong guest rồi chạy lệnh dưới; luôn khôi phục trạng thái cũ trong finally (không tắt mạng Windows). Môi trường kiểm thử ngày 25/10 đã khôi phục cả hai về enabled.
+
+```powershell
+flutter test --no-pub integration_test/auth_network_test.dart -d emulator-5554 --dart-define-from-file=config/firebase.android.json --reporter expanded
+```
+
+Không đặt password account thật vào tham số lệnh/source/screenshot/tài liệu. Hai account m1-web-...@example.test của Web test thủ công có thể còn trong Console để đối chiếu; không dùng làm grading accounts. Test tự động không xóa user có sẵn. Các lượt persistence lỗi trước đó có thể để account m1-persistence-...@example.test cho owner kiểm tra trong Console.
 
 Outputs ignored: `build/web/`, `build/app/outputs/flutter-apk/app-debug.apk`. APK debug là kiểm tra W1, không phải release nộp. HTTPS public hosting, release signing và bộ nộp cuối thuộc các tuần sau. Không commit keystore/key.properties.
 
@@ -74,6 +90,6 @@ Outputs ignored: `build/web/`, `build/app/outputs/flutter-apk/app-debug.apk`. AP
 - [Backlog 32 rubric và issue links](docs/rubric-backlog.md)
 - [Giải thích để đọc hiểu code](docs/m1-code-walkthrough.md)
 
-M1 pmhieu1801; M2 hnt0411; M3 cheertoburi. M2 review UI/Auth, M3 review security. Chưa có review của họ; không self-approve/merge. Activation đầy đủ, reset/change password, profile/avatar/preferences thuộc W2. Deadline và official four-week period: **chưa xác nhận** với giảng viên/e-learning.
+M1 pmhieu1801; M2 hnt0411; M3 CheetoBuri. M2 review UI/Auth, M3 review security; M3 đã xác nhận username CheetoBuri. Review và câu trả lời contract theo dõi ở PR #28; không tự xác nhận thay owner hoặc merge khi thiếu review. Activation đầy đủ, reset/change password, profile/avatar/preferences thuộc W2. Deadline và official four-week period: **chưa xác nhận** với giảng viên/e-learning.
 
 Nguồn kỹ thuật: [Firebase Flutter setup](https://firebase.google.com/docs/flutter/setup), [Auth streams/persistence](https://firebase.google.com/docs/auth/flutter/start), [Email/Password](https://firebase.google.com/docs/auth/flutter/password-auth), [go_router](https://pub.dev/packages/go_router). Nguồn yêu cầu PDF được đối chiếu trong plan; toàn bộ rubric không phải phạm vi W1.

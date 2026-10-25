@@ -93,12 +93,59 @@ void main() {
       while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
         await tester.pump(const Duration(milliseconds: 100));
       }
+      if (finder.evaluate().isEmpty) {
+        final state = container.read(authActionsProvider);
+        // Only safe state metadata, never input values or raw SDK errors.
+        // ignore: avoid_print
+        print(
+          'AUTH_TEST_DIAGNOSTIC '
+          'route=${container.read(appRouterProvider).routeInformationProvider.value.uri.path} '
+          'phase=${sessionPhase(container.read(authSessionProvider)).name} '
+          'busy=${state.busy} error=${state.error}',
+        );
+      }
       expect(finder, findsOneWidget);
     }
 
-    Future<void> submit() async {
-      await tester.ensureVisible(find.byKey(const Key('submit')));
-      await tester.tap(find.byKey(const Key('submit')));
+    Future<void> enterInput(Finder field, String value) async {
+      await tester.ensureVisible(field);
+      await tester.pumpAndSettle();
+      expect(field.hitTestable(), findsOneWidget);
+      await tester.tap(field.hitTestable());
+      await tester.pump(const Duration(milliseconds: 250));
+      await tester.enterText(field, value);
+      // Native input delivery can complete after the enterText Future returns.
+      await tester.pump(const Duration(milliseconds: 250));
+      final controller = tester.widget<TextFormField>(field).controller!;
+      expect(
+        controller.text == value,
+        isTrue,
+        reason: 'Input must settle before submit; values are never logged.',
+      );
+    }
+
+    Future<void> submit({bool register = false}) async {
+      final button = find.byKey(
+        Key(register ? 'register-submit' : 'login-submit'),
+      );
+      // Native IME resize/scroll can finish after Flutter's first settled frame.
+      // Dismiss input focus, then require the real button to be hit-testable.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (button.hitTestable().evaluate().isEmpty &&
+          DateTime.now().isBefore(deadline)) {
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.ensureVisible(button);
+      }
+      expect(
+        button.hitTestable(),
+        findsOneWidget,
+        reason: 'Submit must be visible and receive a real UI tap.',
+      );
+      await tester.tap(button.hitTestable());
       await tester.pump();
     }
 
@@ -113,12 +160,15 @@ void main() {
 
     Future<void> register(String email, String name) async {
       container.read(appRouterProvider).go('/register');
-      await waitFor(find.byKey(const Key('displayName')));
-      await tester.enterText(find.byKey(const Key('email')), email);
-      await tester.enterText(find.byKey(const Key('displayName')), name);
-      await tester.enterText(find.byKey(const Key('password')), password);
-      await tester.enterText(find.byKey(const Key('confirmation')), password);
-      await submit();
+      await waitFor(find.byKey(const Key('register-name')));
+      await enterInput(find.byKey(const Key('register-email')), email);
+      await enterInput(find.byKey(const Key('register-name')), name);
+      await enterInput(find.byKey(const Key('register-password')), password);
+      await enterInput(
+        find.byKey(const Key('register-confirm-password')),
+        password,
+      );
+      await submit(register: true);
       await waitFor(find.byKey(const Key('logout')));
       rememberCreatedUser();
       // Profile update can still be running after the sign-in stream event.
@@ -136,7 +186,7 @@ void main() {
       await waitForIdle();
       await tester.ensureVisible(find.byKey(const Key('logout')));
       await tester.tap(find.byKey(const Key('logout')));
-      await waitFor(find.byKey(const Key('email')));
+      await waitFor(find.byKey(const Key('login-email')));
       expect(FirebaseAuth.instance.currentUser, isNull);
       expect(container.read(authenticatedUidProvider), isNull);
     }
@@ -147,7 +197,7 @@ void main() {
         child: const NoteFlowApp(),
       ),
     );
-    await waitFor(find.byKey(const Key('email')));
+    await waitFor(find.byKey(const Key('login-email')));
     container.read(appRouterProvider).go('/home');
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.byKey(const Key('logout')), findsNothing);
@@ -167,27 +217,39 @@ void main() {
 
     // Duplicate email must fail in Firebase rather than claiming success.
     container.read(appRouterProvider).go('/register');
-    await waitFor(find.byKey(const Key('displayName')));
-    await tester.enterText(find.byKey(const Key('email')), emailA);
-    await tester.enterText(find.byKey(const Key('displayName')), 'Duplicate');
-    await tester.enterText(find.byKey(const Key('password')), password);
-    await tester.enterText(find.byKey(const Key('confirmation')), password);
-    await submit();
+    await waitFor(find.byKey(const Key('register-name')));
+    await enterInput(find.byKey(const Key('register-email')), emailA);
+    await enterInput(find.byKey(const Key('register-name')), 'Duplicate');
+    await enterInput(find.byKey(const Key('register-password')), password);
+    await enterInput(
+      find.byKey(const Key('register-confirm-password')),
+      password,
+    );
+    await submit(register: true);
     await waitFor(find.textContaining('đã được đăng ký'));
     expect(FirebaseAuth.instance.currentUser, isNull);
 
     container.read(authActionsProvider.notifier).clearError();
     container.read(appRouterProvider).go('/login');
     await tester.pump(const Duration(milliseconds: 200));
-    await tester.enterText(find.byKey(const Key('email')), emailA);
-    await tester.enterText(
-      find.byKey(const Key('password')),
+    await enterInput(find.byKey(const Key('login-email')), emailA);
+    await enterInput(
+      find.byKey(const Key('login-password')),
       '${password}wrong',
     );
     await submit();
     await waitFor(find.text('Email hoặc mật khẩu không đúng.'));
     expect(FirebaseAuth.instance.currentUser, isNull);
-    await tester.enterText(find.byKey(const Key('password')), password);
+    await enterInput(find.byKey(const Key('login-password')), password);
+    expect(
+      tester
+              .widget<TextFormField>(find.byKey(const Key('login-password')))
+              .controller!
+              .text ==
+          password,
+      isTrue,
+      reason: 'Retry must use the original password (value is never logged).',
+    );
     await submit();
     await waitFor(find.byKey(const Key('logout')));
     expect(FirebaseAuth.instance.currentUser!.uid, uidA);
