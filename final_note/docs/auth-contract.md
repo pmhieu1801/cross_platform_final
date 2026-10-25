@@ -77,7 +77,7 @@ Thay đổi schema chung cần PR liên quan migration, rules và review owner. 
 ## Review bắt buộc
 
 - hnt0411 (M2): UX form, mobile layout, cách nhận UID/session, cancellation/local partition, Note/Label/Repository/Attachment contract.
-- CheetoBuri (M3): guard fail-closed, SDK Auth/persistence, UID isolation, backend boundaries, User/Share/Lock/Sync/rules proposal. Đã đọc được collaborator permission: read; M2 hnt0411: write.
+- CheetoBuri (M3): guard fail-closed, SDK Auth/persistence, UID isolation, backend boundaries, User/Share/Lock/Sync/rules proposal. API permission trả read nhưng request-review bị GitHub từ chối 422 vì không nhận diện là collaborator; quyền đọc repo công khai không chứng minh collaborator membership. Owner cần thêm/kiểm tra lời mời và M3 chấp nhận. M2 hnt0411 (write) đã nhận request-review.
 - Chưa có review/chốt contract từ hai owner. PR #28 là nơi ghi câu trả lời và review; không tự phê duyệt.
 
 ## Tích hợp giao diện chung ngày 25/10/2026

@@ -90,6 +90,6 @@ Outputs ignored: `build/web/`, `build/app/outputs/flutter-apk/app-debug.apk`. AP
 - [Backlog 32 rubric và issue links](docs/rubric-backlog.md)
 - [Giải thích để đọc hiểu code](docs/m1-code-walkthrough.md)
 
-M1 pmhieu1801; M2 hnt0411; M3 CheetoBuri. M2 review UI/Auth, M3 review security; M3 đã xác nhận username CheetoBuri. Review và câu trả lời contract theo dõi ở PR #28; không tự xác nhận thay owner hoặc merge khi thiếu review. Activation đầy đủ, reset/change password, profile/avatar/preferences thuộc W2. Deadline và official four-week period: **chưa xác nhận** với giảng viên/e-learning.
+M1 pmhieu1801; M2 hnt0411; M3 CheetoBuri. M2 đã nhận request-review PR #28; M3 đúng username nhưng GitHub từ chối request-review vì chưa nhận diện là collaborator, cần owner kiểm tra/thêm invite và M3 chấp nhận. Câu hỏi contract đã @mention ở PR; chưa có xác nhận thay owner hoặc merge khi thiếu review. Activation đầy đủ, reset/change password, profile/avatar/preferences thuộc W2. Deadline và official four-week period: **chưa xác nhận** với giảng viên/e-learning.
 
 Nguồn kỹ thuật: [Firebase Flutter setup](https://firebase.google.com/docs/flutter/setup), [Auth streams/persistence](https://firebase.google.com/docs/auth/flutter/start), [Email/Password](https://firebase.google.com/docs/auth/flutter/password-auth), [go_router](https://pub.dev/packages/go_router). Nguồn yêu cầu PDF được đối chiếu trong plan; toàn bộ rubric không phải phạm vi W1.

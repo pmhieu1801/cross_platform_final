@@ -2,7 +2,7 @@
 
 ID và tên đã đối chiếu đề gốc mục IV (trang 9-14); ownership theo Workflow trang 1/5; username do M1 cung cấp. Bảng này bao phủ toàn dự án. Priority/reviewer/sprint/dependency là đề xuất điều phối, chưa được nhóm chốt. Không issue nào được đánh Done.
 
-Theo lần kiểm tra ngày 24/10/2026, GitHub có 24 issue đã publish trong bảng; R25-R32 được chuẩn bị đầy đủ dưới đây và chưa có số issue để liên kết. Cập nhật 25/10: M1 xác nhận M3 đúng username CheetoBuri, collaborator permission đã đọc được là read; M2 hnt0411 có write. Không assign người khác thay owner M3.
+Theo lần kiểm tra ngày 24/10/2026, GitHub có 24 issue đã publish trong bảng; R25-R32 được chuẩn bị đầy đủ dưới đây và chưa có số issue để liên kết. Cập nhật 25/10: M3 đúng username CheetoBuri nhưng GitHub từ chối request-review 422 vì chưa nhận diện là collaborator; API permission=read trên repo công khai không chứng minh membership. M2 hnt0411 (write) đã nhận yêu cầu review PR #28. Owner cần kiểm tra/thêm invite M3 và M3 chấp nhận; không assign người khác thay owner.
 
 Deadline và khoảng 4 tuần chính thức: **chưa xác nhận**. M1 nói hiện cuối W1. Đề gốc mục V xác nhận 4 tuần Monday-Sunday liên tiếp, mỗi thành viên >=2 meaningful commits mỗi tuần trong official period; không gán ngày hoặc chia commit vụn để đủ số.
 

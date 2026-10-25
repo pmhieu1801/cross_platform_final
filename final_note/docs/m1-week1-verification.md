@@ -91,6 +91,6 @@ Web A UID ncPrIHxrQAglYcZiALLaCpfaIKm1, B UID ctIxGbOjqDaUIZUTI9MhZmn3b1A3 đã 
 
 Hai commit thực chất đã push: [5178a89 — Auth foundation](https://github.com/pmhieu1801/cross_platform_final/commit/5178a892e213329420df3e842dc8a9bb3f7516e1) và [1b72868 — test/contracts](https://github.com/pmhieu1801/cross_platform_final/commit/1b72868d620a3887a89af57655f0bc742d74bec6). Lượt tiếp theo tích hợp main và bổ sung bằng chứng Android, giữ lịch sử nhóm, không chia nhỏ để đủ số lượng/đổi identity/ngày.
 
-[PR #28](https://github.com/pmhieu1801/cross_platform_final/pull/28) là nơi yêu cầu hnt0411/CheetoBuri review. M3 đúng username CheetoBuri (read permission); M2 có write. Xác nhận username không phải chốt contract. Không merge khi thiếu review.
+[PR #28](https://github.com/pmhieu1801/cross_platform_final/pull/28) đã Ready for review, head tích hợp d09e2c5; GitHub báo mergeable=true tại lần kiểm tra sau push. hnt0411 đã nhận request-review; M3 CheetoBuri đã được @mention với câu hỏi contract nhưng request-review chính thức bị GitHub từ chối 422 (chưa nhận diện là collaborator). API permission=read trước đó không chứng minh membership trên repo công khai. Owner cần thêm/kiểm tra invite, M3 chấp nhận rồi request-review. Chưa có owner signoff; không merge khi thiếu review.
 
 Không commit build/APK/cache/AVD/log thô/tmp hoặc desktop registrants tự sinh. Không sửa Note schema/rules/migration. Activation links/reset/change password/profile/avatar/preferences thuộc W2; Notes/sharing/lock/realtime/attachments/offline sync/AI thuộc owners khác.
