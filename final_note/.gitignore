@@ -46,3 +46,16 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local config, credentials and temporary verification renders
+/tmp/
+/config/*.local.json
+.env
+.env.*
+!.env.example
+**/*service-account*.json
+**/*serviceAccount*.json
+**/firebase-adminsdk-*.json
+*.jks
+*.keystore
+**/key.properties

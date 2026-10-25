@@ -30,7 +30,10 @@ void main() {
       );
 
       expect(find.text('No notes yet'), findsOneWidget);
-      expect(find.text('Create your first note to get started.'), findsOneWidget);
+      expect(
+        find.text('Create your first note to get started.'),
+        findsOneWidget,
+      );
       expect(find.text('New Note'), findsOneWidget);
 
       await tester.tap(find.text('New Note'));
@@ -67,9 +70,7 @@ void main() {
       tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(
-          const LoadingStateView(message: 'Syncing your notes...'),
-        ),
+        _wrap(const LoadingStateView(message: 'Syncing your notes...')),
       );
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -80,9 +81,7 @@ void main() {
       tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(
-          const PasswordStrengthBar(strength: PasswordStrength.good),
-        ),
+        _wrap(const PasswordStrengthBar(strength: PasswordStrength.good)),
       );
 
       expect(find.text('Password strength'), findsOneWidget);

@@ -49,8 +49,7 @@ List<Note> createDemoNotes() {
     Note(
       id: 'note-1',
       title: 'Ideas for the weekend',
-      content:
-          'A few things I want to make time for: take the long trail by the lake, try that new coffee place, and finally start the book on my desk.',
+      content: 'A few things I want to make time for: take the long trail by the lake, try that new coffee place, and finally start the book on my desk.',
       labels: const ['Personal', 'Ideas'],
       colorIndex: 0,
       updatedAt: now.subtract(const Duration(minutes: 18)),
@@ -60,8 +59,7 @@ List<Note> createDemoNotes() {
     Note(
       id: 'note-2',
       title: 'Project kickoff',
-      content:
-          'Align on the first milestone, share the design references, and leave space for questions before we wrap up.',
+      content: 'Align on the first milestone, share the design references, and leave space for questions before we wrap up.',
       labels: const ['Work'],
       colorIndex: 1,
       updatedAt: now.subtract(const Duration(hours: 2)),
@@ -71,8 +69,7 @@ List<Note> createDemoNotes() {
     Note(
       id: 'note-3',
       title: 'A little reminder',
-      content:
-          'Small progress is still progress. Keep showing up, even when the plan needs to change.',
+      content: 'Small progress is still progress. Keep showing up, even when the plan needs to change.',
       labels: const ['Personal'],
       colorIndex: 2,
       updatedAt: now.subtract(const Duration(days: 1)),
@@ -80,8 +77,7 @@ List<Note> createDemoNotes() {
     Note(
       id: 'note-4',
       title: 'Reading list',
-      content:
-          'Designing Data-Intensive Applications\nThe Creative Act\nWays of Being',
+      content: 'Designing Data-Intensive Applications\nThe Creative Act\nWays of Being',
       labels: const ['Ideas', 'Learning'],
       colorIndex: 3,
       updatedAt: now.subtract(const Duration(days: 2)),
@@ -89,8 +85,7 @@ List<Note> createDemoNotes() {
     Note(
       id: 'note-5',
       title: 'Grocery list',
-      content:
-          'Oat milk, lemons, cherry tomatoes, fresh basil, pasta, and something sweet for later.',
+      content: 'Oat milk, lemons, cherry tomatoes, fresh basil, pasta, and something sweet for later.',
       labels: const ['Personal'],
       colorIndex: 4,
       updatedAt: now.subtract(const Duration(days: 3)),
@@ -98,8 +93,7 @@ List<Note> createDemoNotes() {
     Note(
       id: 'note-6',
       title: 'Things to explore',
-      content:
-          'Try a morning without notifications. Find a new walking route. Make something just for fun.',
+      content: 'Try a morning without notifications. Find a new walking route. Make something just for fun.',
       labels: const ['Ideas'],
       colorIndex: 5,
       updatedAt: now.subtract(const Duration(days: 4)),

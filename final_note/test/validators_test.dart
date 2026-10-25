@@ -44,7 +44,10 @@ void main() {
       expect(evaluatePasswordStrength('short'), PasswordStrength.weak);
       expect(evaluatePasswordStrength('password1'), PasswordStrength.fair);
       expect(evaluatePasswordStrength('Pass123456'), PasswordStrength.good);
-      expect(evaluatePasswordStrength('P@ssw0rd!2026#Secure'), PasswordStrength.strong);
+      expect(
+        evaluatePasswordStrength('P@ssw0rd!2026#Secure'),
+        PasswordStrength.strong,
+      );
     });
   });
 }

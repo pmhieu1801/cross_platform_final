@@ -61,8 +61,7 @@ class NoteFlowTokens extends ThemeExtension<NoteFlowTokens> {
   final Color shadowColor;
 
   /// Returns the accent colour for a note, wrapping safely.
-  Color noteAccent(int index) =>
-      noteAccents[index.abs() % noteAccents.length];
+  Color noteAccent(int index) => noteAccents[index.abs() % noteAccents.length];
 
   /// Soft coloured glow used on cards, focused inputs and primary buttons.
   List<BoxShadow> glow(Color color, {double strength = 1}) => [
@@ -169,7 +168,11 @@ class NoteFlowTokens extends ThemeExtension<NoteFlowTokens> {
   NoteFlowTokens lerp(ThemeExtension<NoteFlowTokens>? other, double t) {
     if (other is! NoteFlowTokens) return this;
     return NoteFlowTokens(
-      brandGradient: LinearGradient.lerp(brandGradient, other.brandGradient, t)!,
+      brandGradient: LinearGradient.lerp(
+        brandGradient,
+        other.brandGradient,
+        t,
+      )!,
       backgroundGradient: LinearGradient.lerp(
         backgroundGradient,
         other.backgroundGradient,

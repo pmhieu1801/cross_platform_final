@@ -5,7 +5,19 @@ import '../utils/validators.dart';
 import '../widgets/widgets.dart';
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({
+    super.key,
+    this.onSubmit,
+    this.onSignIn,
+    this.isLoading = false,
+    this.error,
+  });
+
+  final Future<void> Function(String email, String name, String password)?
+  onSubmit;
+  final VoidCallback? onSignIn;
+  final bool isLoading;
+  final String? error;
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -20,7 +32,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   bool _obscurePassword = true;
   bool _obscureConfirmation = true;
-  bool _isLoading = false;
   PasswordStrength _strength = PasswordStrength.empty;
 
   @override
@@ -45,24 +56,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _isLoading = true);
-
-    Future<void>.delayed(const Duration(milliseconds: 700), () {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
+  Future<void> _submit() async {
+    if (widget.isLoading || !_formKey.currentState!.validate()) return;
+    final submit = widget.onSubmit;
+    if (submit == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Account creation will be available when authentication is set up.',
-          ),
-        ),
+        const SnackBar(content: Text('Authentication is not configured.')),
       );
-    });
+      return;
+    }
+    await submit(
+      _emailController.text,
+      _nameController.text,
+      _passwordController.text,
+    );
+    // Account creation signs in through Firebase; the router observes the session.
   }
 
   void _returnToLogin() {
+    if (widget.isLoading) return;
+    if (widget.onSignIn != null) {
+      widget.onSignIn!();
+      return;
+    }
     Navigator.of(context).pop();
   }
 
@@ -73,7 +89,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       appBar: AppBar(
         leading: IconButton(
           tooltip: 'Back to sign in',
-          onPressed: _returnToLogin,
+          onPressed: widget.isLoading ? null : _returnToLogin,
           icon: const Icon(Icons.arrow_back_rounded),
         ),
       ),
@@ -102,10 +118,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 child: _buildHeroShowcase(context),
                               ),
                               const SizedBox(width: AppSpacing.xxl),
-                              Expanded(
-                                flex: 6,
-                                child: _buildFormCard(context),
-                              ),
+                              Expanded(flex: 6, child: _buildFormCard(context)),
                             ],
                           )
                         : _buildFormCard(context),
@@ -142,9 +155,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: AppSpacing.md),
           Text(
             'Join NoteFlow today. Organize your knowledge, collaborate in real time, and let AI summarize your ideas.',
-            style: text.bodyLarge?.copyWith(
-              color: tokens.textMuted,
-            ),
+            style: text.bodyLarge?.copyWith(color: tokens.textMuted),
           ),
           const SizedBox(height: AppSpacing.xxl),
           _HighlightItem(
@@ -207,6 +218,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: AppSpacing.xs),
             TextFormField(
               key: const Key('register-name'),
+              enabled: !widget.isLoading,
               controller: _nameController,
               textCapitalization: TextCapitalization.words,
               textInputAction: TextInputAction.next,
@@ -227,6 +239,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: AppSpacing.xs),
             TextFormField(
               key: const Key('register-email'),
+              enabled: !widget.isLoading,
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
@@ -247,8 +260,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: AppSpacing.xs),
             TextFormField(
               key: const Key('register-password'),
+              enabled: !widget.isLoading,
               controller: _passwordController,
               obscureText: _obscurePassword,
+              autocorrect: false,
+              enableSuggestions: false,
               textInputAction: TextInputAction.next,
               autofillHints: const [AutofillHints.newPassword],
               decoration: InputDecoration(
@@ -256,9 +272,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 prefixIcon: const Icon(Icons.lock_outline_rounded),
                 suffixIcon: IconButton(
                   tooltip: _obscurePassword ? 'Show password' : 'Hide password',
-                  onPressed: () => setState(
-                    () => _obscurePassword = !_obscurePassword,
-                  ),
+                  onPressed: widget.isLoading
+                      ? null
+                      : () => setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        ),
                   icon: Icon(
                     _obscurePassword
                         ? Icons.visibility_outlined
@@ -279,8 +297,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: AppSpacing.xs),
             TextFormField(
               key: const Key('register-confirm-password'),
+              enabled: !widget.isLoading,
               controller: _confirmPasswordController,
               obscureText: _obscureConfirmation,
+              autocorrect: false,
+              enableSuggestions: false,
               textInputAction: TextInputAction.done,
               autofillHints: const [AutofillHints.newPassword],
               onFieldSubmitted: (_) => _submit(),
@@ -291,9 +312,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   tooltip: _obscureConfirmation
                       ? 'Show confirmation password'
                       : 'Hide confirmation password',
-                  onPressed: () => setState(
-                    () => _obscureConfirmation = !_obscureConfirmation,
-                  ),
+                  onPressed: widget.isLoading
+                      ? null
+                      : () => setState(
+                          () => _obscureConfirmation = !_obscureConfirmation,
+                        ),
                   icon: Icon(
                     _obscureConfirmation
                         ? Icons.visibility_outlined
@@ -313,9 +336,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(height: AppSpacing.xl),
 
+            if (widget.error != null) ...[
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  widget.error!,
+                  style: TextStyle(color: colors.error),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
             GradientButton(
+              key: const Key('register-submit'),
               label: 'Create account',
-              loading: _isLoading,
+              loading: widget.isLoading,
               onPressed: _submit,
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -329,7 +363,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   style: text.bodyMedium?.copyWith(color: tokens.textMuted),
                 ),
                 TextButton(
-                  onPressed: _returnToLogin,
+                  onPressed: widget.isLoading ? null : _returnToLogin,
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     minimumSize: Size.zero,
@@ -384,9 +418,7 @@ class _HighlightItem extends StatelessWidget {
           decoration: BoxDecoration(
             color: colors.secondary.withValues(alpha: 0.14),
             borderRadius: AppRadius.smAll,
-            border: Border.all(
-              color: colors.secondary.withValues(alpha: 0.28),
-            ),
+            border: Border.all(color: colors.secondary.withValues(alpha: 0.28)),
           ),
           child: Icon(icon, size: 20, color: colors.secondary),
         ),

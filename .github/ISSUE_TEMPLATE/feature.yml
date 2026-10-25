@@ -1,0 +1,64 @@
+name: Rubric feature or defect
+description: Track ownership, acceptance and evidence for NoteFlow
+title: "RXX - "
+body:
+  - type: input
+    id: owner
+    attributes:
+      label: Owner
+      description: M1 pmhieu1801 / M2 hnt0411 / M3 CheetoBuri
+    validations:
+      required: true
+  - type: input
+    id: reviewer
+    attributes:
+      label: Reviewer
+      description: Another member; include security reviewer when relevant
+    validations:
+      required: true
+  - type: input
+    id: rubric
+    attributes:
+      label: Rubric and source
+      description: R1-R32 plus original specification section; if unknown write cần đối chiếu
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 - blocks gate
+        - P1 - core
+        - P2 - planned
+    validations:
+      required: true
+  - type: textarea
+    id: dependency
+    attributes:
+      label: Dependencies and target sprint
+      description: Link dependency issues/contracts; target sprint is relative, deadline chưa xác nhận
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Concrete behavior, loading/error/permission states; distinguish W1 slice from whole rubric
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Test and evidence
+      description: Platform, exact commands, results, screenshots/video and limitations; write chưa chạy if pending
+    validations:
+      required: true
+  - type: checkboxes
+    id: done
+    attributes:
+      label: Definition of Done
+      options:
+        - label: Web and Android behavior checked, relevant tests pass
+        - label: Backend authorization and account isolation checked where applicable
+        - label: Another member reviewed; PR merged; tracker and evidence updated

@@ -108,9 +108,7 @@ class ErrorStateView extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: colors.error.withValues(alpha: 0.12),
-                border: Border.all(
-                  color: colors.error.withValues(alpha: 0.25),
-                ),
+                border: Border.all(color: colors.error.withValues(alpha: 0.25)),
               ),
               child: Icon(
                 Icons.error_outline_rounded,
@@ -152,10 +150,7 @@ class ErrorStateView extends StatelessWidget {
 
 /// Reusable full-container loading state (Rubric #29).
 class LoadingStateView extends StatelessWidget {
-  const LoadingStateView({
-    super.key,
-    this.message = 'Loading...',
-  });
+  const LoadingStateView({super.key, this.message = 'Loading...'});
 
   final String message;
 

@@ -6,7 +6,18 @@ import '../widgets/widgets.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({
+    super.key,
+    this.onSubmit,
+    this.onCreateAccount,
+    this.isLoading = false,
+    this.error,
+  });
+
+  final Future<void> Function(String email, String password)? onSubmit;
+  final VoidCallback? onCreateAccount;
+  final bool isLoading;
+  final String? error;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -17,7 +28,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
-  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -26,24 +36,25 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _isLoading = true);
-
-    Future<void>.delayed(const Duration(milliseconds: 700), () {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
+  Future<void> _submit() async {
+    if (widget.isLoading || !_formKey.currentState!.validate()) return;
+    final submit = widget.onSubmit;
+    if (submit == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Sign-in will be available when authentication is set up.',
-          ),
-        ),
+        const SnackBar(content: Text('Authentication is not configured.')),
       );
-    });
+      return;
+    }
+    await submit(_emailController.text, _passwordController.text);
+    // Session stream and router own navigation after authentication.
   }
 
   void _openRegistration() {
+    if (widget.isLoading) return;
+    if (widget.onCreateAccount != null) {
+      widget.onCreateAccount!();
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (context) => const RegisterScreen()),
     );
@@ -87,10 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 child: _buildHeroShowcase(context),
                               ),
                               const SizedBox(width: AppSpacing.xxl),
-                              Expanded(
-                                flex: 6,
-                                child: _buildFormCard(context),
-                              ),
+                              Expanded(flex: 6, child: _buildFormCard(context)),
                             ],
                           )
                         : _buildFormCard(context),
@@ -127,21 +135,21 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: AppSpacing.md),
           Text(
             'A modern, beautiful, and secure workspace for all your notes, ideas, and real-time collaboration.',
-            style: text.bodyLarge?.copyWith(
-              color: tokens.textMuted,
-            ),
+            style: text.bodyLarge?.copyWith(color: tokens.textMuted),
           ),
           const SizedBox(height: AppSpacing.xxl),
           _HeroFeatureItem(
             icon: Icons.bolt_rounded,
             title: 'Real-time & Offline Ready',
-            subtitle: 'Access and edit seamlessly everywhere, even without internet.',
+            subtitle:
+                'Access and edit seamlessly everywhere, even without internet.',
           ),
           const SizedBox(height: AppSpacing.md),
           _HeroFeatureItem(
             icon: Icons.auto_awesome_rounded,
             title: 'AI Smart Summary',
-            subtitle: 'Condense long thoughts and ask questions with source notes.',
+            subtitle:
+                'Condense long thoughts and ask questions with source notes.',
           ),
           const SizedBox(height: AppSpacing.md),
           _HeroFeatureItem(
@@ -190,6 +198,7 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: AppSpacing.xs),
             TextFormField(
               key: const Key('login-email'),
+              enabled: !widget.isLoading,
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
@@ -205,11 +214,13 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 Text(
                   'Password',
-                  style: text.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+                  style: text.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: _showResetNotice,
+                  onPressed: widget.isLoading ? null : _showResetNotice,
                   style: TextButton.styleFrom(
                     padding: EdgeInsets.zero,
                     minimumSize: Size.zero,
@@ -228,8 +239,11 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: AppSpacing.xs),
             TextFormField(
               key: const Key('login-password'),
+              enabled: !widget.isLoading,
               controller: _passwordController,
               obscureText: _obscurePassword,
+              autocorrect: false,
+              enableSuggestions: false,
               textInputAction: TextInputAction.done,
               autofillHints: const [AutofillHints.password],
               onFieldSubmitted: (_) => _submit(),
@@ -238,9 +252,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 prefixIcon: const Icon(Icons.lock_outline_rounded),
                 suffixIcon: IconButton(
                   tooltip: _obscurePassword ? 'Show password' : 'Hide password',
-                  onPressed: () => setState(
-                    () => _obscurePassword = !_obscurePassword,
-                  ),
+                  onPressed: widget.isLoading
+                      ? null
+                      : () => setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        ),
                   icon: Icon(
                     _obscurePassword
                         ? Icons.visibility_outlined
@@ -251,9 +267,20 @@ class _LoginScreenState extends State<LoginScreen> {
               validator: Validators.requiredPassword,
             ),
             const SizedBox(height: AppSpacing.xl),
+            if (widget.error != null) ...[
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  widget.error!,
+                  style: TextStyle(color: colors.error),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
             GradientButton(
+              key: const Key('login-submit'),
               label: 'Sign in',
-              loading: _isLoading,
+              loading: widget.isLoading,
               onPressed: _submit,
             ),
             const SizedBox(height: AppSpacing.xl),
@@ -261,7 +288,9 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 Expanded(child: Divider(color: colors.outlineVariant)),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                  ),
                   child: Text(
                     'NEW TO NOTEFLOW?',
                     style: text.labelSmall?.copyWith(
@@ -276,7 +305,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             const SizedBox(height: AppSpacing.lg),
             OutlinedButton(
-              onPressed: _openRegistration,
+              onPressed: widget.isLoading ? null : _openRegistration,
               child: const Text('Create an account'),
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -318,9 +347,7 @@ class _HeroFeatureItem extends StatelessWidget {
           decoration: BoxDecoration(
             color: colors.primary.withValues(alpha: 0.14),
             borderRadius: AppRadius.smAll,
-            border: Border.all(
-              color: colors.primary.withValues(alpha: 0.28),
-            ),
+            border: Border.all(color: colors.primary.withValues(alpha: 0.28)),
           ),
           child: Icon(icon, size: 20, color: colors.primary),
         ),

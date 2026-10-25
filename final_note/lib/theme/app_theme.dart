@@ -115,9 +115,7 @@ abstract final class AppTheme {
           borderSide: BorderSide(color: color, width: width),
         );
 
-    final buttonShape = RoundedRectangleBorder(
-      borderRadius: AppRadius.mdAll,
-    );
+    final buttonShape = RoundedRectangleBorder(borderRadius: AppRadius.mdAll);
     const buttonPadding = EdgeInsets.symmetric(
       horizontal: AppSpacing.xl,
       vertical: AppSpacing.md,

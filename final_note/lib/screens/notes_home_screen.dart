@@ -57,8 +57,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   List<Note> get _visibleNotes {
     final query = _query.trim().toLowerCase();
     final visible = _notes.where((note) {
-      final matchesSection =
-          _section == _NotesSection.all || note.isPinned;
+      final matchesSection = _section == _NotesSection.all || note.isPinned;
       final matchesLabel =
           _selectedLabel == null || note.labels.contains(_selectedLabel);
       final matchesQuery =
@@ -303,7 +302,8 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     required bool isCompact,
     required bool isWide,
   }) {
-    final title = _selectedLabel ??
+    final title =
+        _selectedLabel ??
         (_section == _NotesSection.pinned ? 'Pinned notes' : 'Your notes');
     final subtitle = _section == _NotesSection.pinned && _selectedLabel == null
         ? 'Your most important thoughts, close at hand.'
@@ -848,9 +848,7 @@ class _NoteCard extends StatelessWidget {
                     itemBuilder: (context) => [
                       PopupMenuItem(
                         value: 'pin',
-                        child: Text(
-                          note.isPinned ? 'Unpin note' : 'Pin note',
-                        ),
+                        child: Text(note.isPinned ? 'Unpin note' : 'Pin note'),
                       ),
                     ],
                   ),
@@ -887,7 +885,10 @@ class _NoteCard extends StatelessWidget {
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
-                  children: note.labels.take(3).map(_NoteLabelBadge.new).toList(),
+                  children: note.labels
+                      .take(3)
+                      .map(_NoteLabelBadge.new)
+                      .toList(),
                 ),
               ],
             ],
@@ -964,7 +965,10 @@ class _NoteListTile extends StatelessWidget {
                       Wrap(
                         spacing: 6,
                         runSpacing: 6,
-                        children: note.labels.take(3).map(_NoteLabelBadge.new).toList(),
+                        children: note.labels
+                            .take(3)
+                            .map(_NoteLabelBadge.new)
+                            .toList(),
                       ),
                     ],
                   ],

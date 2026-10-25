@@ -42,7 +42,8 @@ class BrandBadge extends StatelessWidget {
           const SizedBox(width: AppSpacing.md),
           Text(
             'NoteFlow',
-            style: textStyle ??
+            style:
+                textStyle ??
                 text.titleLarge?.copyWith(
                   fontFamily: AppTypography.display,
                   fontWeight: FontWeight.w800,

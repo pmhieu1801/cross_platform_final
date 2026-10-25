@@ -1,13 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:final_note/features/auth/application/auth_providers.dart';
+
+import 'support/fake_auth_repository.dart';
 
 import 'package:final_note/main.dart';
 import 'package:final_note/screens/notes_home_screen.dart';
 import 'package:final_note/screens/register_screen.dart';
 
 void main() {
+  Future<void> pumpSignedOut(WidgetTester tester) async {
+    final fake = FakeAuthRepository();
+    final container = ProviderContainer(
+      overrides: [authRepositoryProvider.overrideWith((ref) async => fake)],
+    );
+    addTearDown(() async {
+      container.dispose();
+      await fake.dispose();
+    });
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const NoteFlowApp(),
+      ),
+    );
+    await container.read(authRepositoryProvider.future);
+    await tester.pump();
+    fake.events.add(null);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('opens on the sign-in screen', (tester) async {
-    await tester.pumpWidget(const NoteFlowApp());
+    await pumpSignedOut(tester);
 
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.byKey(const Key('login-email')), findsOneWidget);
@@ -17,7 +42,7 @@ void main() {
   testWidgets('registration can be opened and returns to sign in', (
     tester,
   ) async {
-    await tester.pumpWidget(const NoteFlowApp());
+    await pumpSignedOut(tester);
 
     await tester.tap(find.text('Create an account'));
     await tester.pumpAndSettle();
@@ -32,7 +57,7 @@ void main() {
   });
 
   testWidgets('sign-in form shows an email validation message', (tester) async {
-    await tester.pumpWidget(const NoteFlowApp());
+    await pumpSignedOut(tester);
 
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
