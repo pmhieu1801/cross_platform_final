@@ -25,6 +25,17 @@ class FakeAuthRepository implements AuthRepository {
   int signOutCalls = 0;
   String? receivedEmail;
   String? receivedName;
+  int verificationCalls = 0;
+  int refreshCalls = 0;
+  Completer<void>? verificationPending;
+  AuthFailure? verificationFailure;
+  AuthFailure? refreshFailure;
+  RegistrationResult registrationResult = const RegistrationResult(
+    uid: 'uid-A',
+    verificationSent: true,
+  );
+  AuthUser refreshedUser = userA;
+  Completer<void>? registrationFollowUp;
 
   @override
   Stream<AuthUser?> watchSession() => events.stream;
@@ -43,7 +54,7 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> register({
+  Future<RegistrationResult> register({
     required String email,
     required String displayName,
     required String password,
@@ -53,6 +64,23 @@ class FakeAuthRepository implements AuthRepository {
     receivedName = displayName;
     await _complete();
     events.add(userA);
+    if (registrationFollowUp != null) await registrationFollowUp!.future;
+    return registrationResult;
+  }
+
+  @override
+  Future<void> sendVerificationEmail(String expectedUid) async {
+    verificationCalls++;
+    if (verificationPending != null) await verificationPending!.future;
+    if (verificationFailure != null) throw verificationFailure!;
+  }
+
+  @override
+  Future<void> refreshCurrentUser(String expectedUid) async {
+    refreshCalls++;
+    if (verificationPending != null) await verificationPending!.future;
+    if (refreshFailure != null) throw refreshFailure!;
+    events.add(refreshedUser);
   }
 
   @override
