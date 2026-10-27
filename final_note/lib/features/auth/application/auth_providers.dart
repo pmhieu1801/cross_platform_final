@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/firebase_config.dart';
 import '../data/firebase_auth_repository.dart';
 import '../domain/auth_repository.dart';
+import 'verification_providers.dart';
 
 final firebaseAppProvider = FutureProvider<FirebaseApp>((ref) async {
   final options = FirebaseConfig.fromEnvironment();
@@ -86,13 +87,29 @@ class AuthActions extends Notifier<AuthActionState> {
     (repository) => repository.signIn(email: email.trim(), password: password),
   );
 
-  Future<void> register(String email, String name, String password) => _run(
-    (repository) => repository.register(
-      email: email.trim(),
-      displayName: name.trim(),
-      password: password,
-    ),
-  );
+  Future<void> register(String email, String name, String password) =>
+      _run((repository) async {
+        final transitions = <String?>[];
+        final subscription = ref.listen(authenticatedUidProvider, (_, next) {
+          transitions.add(next);
+        });
+        try {
+          final result = await repository.register(
+            email: email.trim(),
+            displayName: name.trim(),
+            password: password,
+          );
+          // The Future may beat the SDK session event. Buffer feedback by UID,
+          // but discard it after any intervening logout/account switch.
+          if (ref.mounted && transitions.every((uid) => uid == result.uid)) {
+            ref
+                .read(verificationActionsProvider(result.uid).notifier)
+                .registrationCompleted(result);
+          }
+        } finally {
+          subscription.close();
+        }
+      });
 
   Future<void> signOut() => _run((repository) => repository.signOut());
 
