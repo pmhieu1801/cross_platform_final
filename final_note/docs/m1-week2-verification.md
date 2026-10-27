@@ -29,7 +29,7 @@ Lựa chọn triển khai: handler HTTPS mặc định Firebase, không truyền
 | Web release build, config thật | PASS, build/web; không đồng nghĩa đã deploy/runtime production |
 | Android debug production build | PASS, build/app/outputs/flutter-apk/app-debug.apk; không phải bản release ký nộp |
 | Android auth_real_test, emulator-5554, Firebase thật | PASS **1/1**: native forms/register/UID/banner, login sai/đúng, duplicate account, logout/private route và A→B; cleanup đúng hai account vừa tạo |
-| Native inbox/link activation mới | Owner xác nhận mail alias đã tới; đã ghi nhận banner/email nhận đúng; chờ mở handler trên Chrome emulator |
+| Native inbox/SDK activation mới | PASS: owner xác nhận nhận mail alias; mở link trên máy tính; nút kiểm tra trên Android bỏ banner theo SDK. Handler Chrome emulator NOT RUN |
 
 Tests cô lập kiểm network/rate-limit, partial register (mail lỗi hoặc tên lỗi), request lặp, cooldown hết hạn, refresh lỗi/retry, resume, SDK-only flag, compact layout/text scale 1.6, UID mismatch, callback cũ/resend và registration result đến muộn. Không skip/bỏ assertion cũ. Fixture chờ bounded pump khi session chưa có event (spinner không settle); dispose container trong test trước invariant timer của Flutter.
 
@@ -45,17 +45,17 @@ Giới hạn: chưa lưu ảnh trước verify của chính inbox này vì owner
 
 ## Acceptance → evidence → trạng thái
 
-Android production APK đã cài/mở trên AVD test_flutter sau integration runner. Owner tự đăng ký bằng alias của inbox mình và xác nhận đã nhận mail. Quan sát trực tiếp banner chưa xác minh, đúng địa chỉ nhận lấy từ SDK và home/UID vẫn truy cập được. Ảnh [Android trước verify](evidence/w2/android-unverified.png) lấy sau khi cập nhật APK bằng install -r: cùng session được giữ, banner chưa verify vẫn đúng. Chờ owner mở link trong Chrome emulator. Không gửi lại vào địa chỉ nhập nhầm ở lần đầu, không xóa account owner/ngoài hai account tự tạo của integration runner.
+Android production APK đã cài/mở trên AVD test_flutter sau integration runner. Owner tự đăng ký bằng alias của inbox mình và xác nhận đã nhận mail. Quan sát trực tiếp banner chưa xác minh, đúng địa chỉ nhận lấy từ SDK và home/UID vẫn truy cập được. Ảnh [Android trước verify](evidence/w2/android-unverified.png) lấy sau khi cập nhật APK bằng install -r: cùng session được giữ, banner chưa verify vẫn đúng. Owner xác nhận mở link bằng **trình duyệt máy tính**, sau đó nhấn “Kiểm tra xác minh” trên Android; banner biến mất. Quan sát/lưu ảnh [Android sau verify](evidence/w2/android-verified.png) cùng UID với trước verify. Không suy ca này thành PASS cho handler trong Chrome emulator: phần đó **NOT RUN**. Không gửi lại vào địa chỉ nhập nhầm ở lần đầu, không xóa account owner/ngoài hai account tự tạo của integration runner.
 
 | Acceptance W2-01 | Evidence | Trạng thái |
 | --- | --- | --- |
 | Account/session thật và gửi mail sau register | Adapter + Android SDK regression; owner xác nhận nhận email Web | PASS phần đã quan sát/xác nhận |
-| Inbox thật nhận mail/link có tác dụng | Owner xác nhận nhận/mở link; Web SDK-backed UI không banner | PASS Web với giới hạn handler observation ở trên; Android pending |
+| Inbox thật nhận mail/link có tác dụng | Owner xác nhận nhận/mở link cho hai account; SDK-backed Web/Android UI không banner | PASS delivery + link mở trên máy tính; handler Chrome emulator NOT RUN |
 | Banner trước verify, không chặn app | Widget + Android native register/UID/banner | PASS các ca này; thiếu ảnh trước verify inbox Web owner |
-| Refresh bỏ banner, reload/reopen giữ state | Tests + Web reload cùng UID, không banner | PASS Web reload; native mail/reopen pending |
+| Refresh bỏ banner, reload/reopen giữ state | Tests + Web reload cùng UID; Android nút kiểm tra bỏ banner sau link thật; adb force-stop rồi mở app lại vẫn cùng UID, không banner ([ảnh](evidence/w2/android-verified-reopened.png)) | PASS Web reload/native refresh và reopen; chưa reboot OS |
 | Resend loading/duplicate/cooldown/mạng/rate-limit | Tests hành vi provider/widget/adapter | PASS cô lập; chưa ép lỗi mail/network/rate-limit thật trên hai nền tảng |
 | Không tự gán verified, không lẫn A/B | SDK snapshot/reload; expectedUid + lease/generation; tests A/B, late register | PASS source/tests; module cache/listener M2/M3 chưa thuộc phạm vi |
-| Đủ Web deployed + submitted native + review/merge | Localhost evidence, SDK regression, PR draft dự kiến | NOT RUN deployed Web; native activation chờ; review/merge chưa có |
+| Đủ Web deployed + submitted native + review/merge | Localhost evidence, SDK regression, native inbox/refresh, PR draft | NOT RUN deployed Web/handler Chrome emulator; review/merge chưa có |
 
 ## Lệnh tái kiểm thử
 
@@ -75,6 +75,6 @@ Native test tự tạo email example.test và password random chỉ ở RAM, xó
 
 ## Bàn giao và phần còn lại
 
-Contract mới nằm trong auth-contract.md; ví dụ đọc code trong m1-code-walkthrough.md mục 8. M2 review UI/banner placement khi tích hợp Notes; M3 review SDK/UID/session boundary và handler. Không tự approve/merge, không close issue #4 khi thiếu DoD.
+Code/test đã push trong commit `2c704b3` trên nhánh `pmhieu1801/m1-week2-account`; evidence native sau verification được bổ sung sau khi owner hoàn tất thao tác. Contract mới nằm trong auth-contract.md; ví dụ đọc code trong m1-code-walkthrough.md mục 8. M2 review UI/banner placement khi tích hợp Notes; M3 review SDK/UID/session boundary và handler. Không tự approve/merge, không close issue #4 khi thiếu DoD. Permission API của M3 vẫn trả read; điều đó không chứng minh collaborator membership trên repo công khai.
 
 Chỉ sau khi tổng kết W2-01 và owner đồng ý mới bắt đầu W2-02 (forgot/reset). Prerequisite W2-02: lựa chọn handler đã kiểm chứng, inbox owner, public forgot route mới và policy thông báo chống dò account; chưa code task đó trong lượt này.
