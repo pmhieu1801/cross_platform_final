@@ -1,65 +1,50 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/note.dart';
+import '../../screens/notes_home_screen.dart';
 import '../auth/application/auth_providers.dart';
+import '../notes/application/note_providers.dart';
 
-/// W1 destination only. Notes UI/repositories belong to M2.
+/// Account-scoped Notes destination for `/home`.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authenticatedUserProvider);
-    // Also block the frame before the router processes a redirect.
+    // Block the frame before the router processes a redirect.
     if (user == null) return const Scaffold(body: SizedBox.shrink());
-    final action = ref.watch(authActionsProvider);
-    final account = ref.watch(accountSessionProvider)!;
-    return Scaffold(
-      appBar: AppBar(title: const Text('NoteFlow')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: ListView(
-            key: ValueKey(account.uid),
-            shrinkWrap: true,
-            padding: const EdgeInsets.all(24),
-            children: [
-              if (!user.emailVerified) ...[
-                const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'Email chưa được xác minh. Vui lòng hoàn tất xác minh email. '
-                      'Bạn vẫn có thể sử dụng ứng dụng.',
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
-              Text(
-                'Xin chào, ${user.displayName ?? user.email ?? 'bạn'}',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 16),
-              SelectableText('Firebase UID: ${user.uid}'),
-              const SizedBox(height: 24),
-              const Text('Chào mừng đến với NoteFlow.'),
-              if (action.error != null) ...[
-                const SizedBox(height: 16),
-                Semantics(liveRegion: true, child: Text(action.error!)),
-              ],
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                key: const Key('logout'),
-                onPressed: action.busy
-                    ? null
-                    : ref.read(authActionsProvider.notifier).signOut,
-                icon: const Icon(Icons.logout),
-                label: Text(action.busy ? 'Đang xử lý…' : 'Đăng xuất'),
-              ),
-            ],
-          ),
-        ),
-      ),
+
+    final account = ref.watch(accountSessionProvider);
+    if (account == null || !account.isActive) {
+      return const Scaffold(body: SizedBox.shrink());
+    }
+
+    final authAction = ref.watch(authActionsProvider);
+    final notesAsync = ref.watch(accountNotesStreamProvider);
+    final noteActions = ref.read(noteActionsProvider.notifier);
+
+    final isLoading = notesAsync.isLoading;
+    final hasError = notesAsync.hasError;
+    final notes = (!isLoading && !hasError)
+        ? (notesAsync.asData?.value ?? const <Note>[])
+        : const <Note>[];
+
+    return NotesHomeScreen(
+      key: ValueKey(account.uid),
+      user: user,
+      authBusy: authAction.busy,
+      authError: authAction.error,
+      onLogout: ref.read(authActionsProvider.notifier).signOut,
+      notes: notes,
+      isLoading: isLoading,
+      errorMessage: hasError ? 'Không thể tải danh sách ghi chú.' : null,
+      onRetry: () => ref.invalidate(accountNotesStreamProvider),
+      onSaveNote: (draft, {required isAutosave}) =>
+          noteActions.saveNote(draft, isAutosave: isAutosave),
+      onDeleteNote: noteActions.deleteNote,
+      onTogglePin: noteActions.togglePin,
     );
   }
 }
