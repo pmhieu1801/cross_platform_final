@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:final_note/features/auth/application/auth_providers.dart';
 
 import 'support/fake_auth_repository.dart';
@@ -10,6 +11,10 @@ import 'package:final_note/screens/notes_home_screen.dart';
 import 'package:final_note/screens/register_screen.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+  });
   Future<void> pumpSignedOut(WidgetTester tester) async {
     final fake = FakeAuthRepository();
     final container = ProviderContainer(
@@ -129,5 +134,32 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Launch plan'), findsOneWidget);
+  });
+
+  testWidgets('notes are auto-saved to local storage', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: NotesHomeScreen()));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    final titleField = find.byWidgetPredicate(
+      (widget) => widget is TextField && widget.decoration?.labelText == 'Title',
+    );
+    final contentField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == 'Content',
+    );
+
+    await tester.enterText(titleField, 'Saved note');
+    await tester.enterText(contentField, 'This should persist');
+    await tester.tap(find.text('Create note'));
+    await tester.pumpAndSettle();
+
+    final prefs = await SharedPreferences.getInstance();
+    final payload = prefs.getString('noteflow_notes_v1');
+
+    expect(payload, isNotNull);
+    expect(payload, contains('Saved note'));
+    expect(payload, contains('This should persist'));
   });
 }

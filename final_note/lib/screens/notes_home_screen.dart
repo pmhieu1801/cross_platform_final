@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/note.dart';
+import '../services/note_storage.dart';
 
 const _pageColor = Color(0xFFFAF9F6);
 const _inkColor = Color(0xFF202A26);
@@ -29,17 +30,35 @@ class NotesHomeScreen extends StatefulWidget {
 }
 
 class _NotesHomeScreenState extends State<NotesHomeScreen> {
-  late final List<Note> _notes;
+  List<Note> _notes = const <Note>[];
   final _searchController = TextEditingController();
   _NotesSection _section = _NotesSection.all;
   _NotesLayout _layout = _NotesLayout.grid;
   String? _selectedLabel;
   String _query = '';
 
+  bool _isLoaded = false;
+
   @override
   void initState() {
     super.initState();
-    _notes = List.of(widget.initialNotes ?? createDemoNotes());
+    _notes = List.of(widget.initialNotes ?? const <Note>[]);
+    _loadSavedNotes();
+  }
+
+  Future<void> _loadSavedNotes() async {
+    final saved = widget.initialNotes ?? await NoteStorage.loadNotes();
+    if (!mounted) return;
+
+    setState(() {
+      _notes = List.of(saved);
+      _isLoaded = true;
+    });
+  }
+
+  Future<void> _persistNotes() async {
+    if (!_isLoaded) return;
+    await NoteStorage.saveNotes(_notes);
   }
 
   @override
@@ -91,8 +110,10 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         isPinned: pinning,
         pinnedAt: pinning ? DateTime.now() : null,
         clearPinnedAt: !pinning,
+        updatedAt: DateTime.now(),
       );
     });
+    Future.microtask(_persistNotes);
   }
 
   Future<void> _openEditor({Note? note}) async {
@@ -113,21 +134,21 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           labels: draft.labels,
           updatedAt: DateTime.now(),
         );
-        return;
+      } else {
+        _notes.insert(
+          0,
+          Note(
+            id: 'note-${DateTime.now().millisecondsSinceEpoch}',
+            title: draft.title.trim(),
+            content: draft.content.trim(),
+            labels: draft.labels,
+            colorIndex: _notes.length % _noteColors.length,
+            updatedAt: DateTime.now(),
+          ),
+        );
       }
-
-      _notes.insert(
-        0,
-        Note(
-          id: 'note-${DateTime.now().millisecondsSinceEpoch}',
-          title: draft.title.trim(),
-          content: draft.content.trim(),
-          labels: draft.labels,
-          colorIndex: _notes.length % _noteColors.length,
-          updatedAt: DateTime.now(),
-        ),
-      );
     });
+    Future.microtask(_persistNotes);
   }
 
   Future<void> _deleteNote(Note note) async {
@@ -155,6 +176,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     setState(() {
       _notes.removeWhere((item) => item.id == note.id);
     });
+    Future.microtask(_persistNotes);
   }
 
   void _showPreview(Note note) {
