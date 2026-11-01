@@ -46,12 +46,13 @@ Future<bool> confirmDeleteNote(
   return result ?? false;
 }
 
-/// Unified Create / Update note editor with debounced auto-save and
-/// [AppLifecycleListener] flush support (R11, R12, R13, R14).
+/// Unified Create / Update note editor with debounced auto-save,
+/// [AppLifecycleListener] flush support, and label attachment (R11-R14, R21).
 class NoteEditorPanel extends StatefulWidget {
   const NoteEditorPanel({
     super.key,
     this.initialNote,
+    this.availableLabels = const <String>[],
     required this.onSave,
     this.onDelete,
     this.onClose,
@@ -61,6 +62,9 @@ class NoteEditorPanel extends StatefulWidget {
 
   /// `null` when creating a new note; non-null when editing an existing note.
   final Note? initialNote;
+
+  /// All known labels for this account so the user can toggle them on/off.
+  final List<String> availableLabels;
 
   /// Persists the note and returns the saved [Note] (or throws / returns `null`
   /// on failure).
@@ -86,12 +90,14 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   late final String _noteId;
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
+  final _newLabelController = TextEditingController();
   late final AppLifecycleListener _lifecycleListener;
 
   late int _colorIndex;
   late bool _isPinned;
   late DateTime? _pinnedAt;
   late List<String> _labels;
+  late List<String> _catalogLabels;
 
   Timer? _debounceTimer;
   bool _dirty = false;
@@ -111,6 +117,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     _isPinned = initial?.isPinned ?? false;
     _pinnedAt = initial?.pinnedAt;
     _labels = List<String>.of(initial?.labels ?? const <String>[]);
+    _catalogLabels = {...widget.availableLabels, ..._labels}.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     _hasEverSaved = initial != null;
     _lastSavedSnapshot = initial;
 
@@ -126,6 +134,15 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   }
 
   @override
+  void didUpdateWidget(covariant NoteEditorPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.availableLabels != widget.availableLabels) {
+      _catalogLabels = {...widget.availableLabels, ..._labels}.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    }
+  }
+
+  @override
   void dispose() {
     _debounceTimer?.cancel();
     _lifecycleListener.dispose();
@@ -133,6 +150,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     _contentController.removeListener(_onFieldEdited);
     _titleController.dispose();
     _contentController.dispose();
+    _newLabelController.dispose();
     super.dispose();
   }
 
@@ -175,6 +193,40 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
 
   void _onFieldEdited() {
     if (!_differsFromLastSaved()) return;
+    _dirty = true;
+    _scheduleAutosave();
+  }
+
+  void _toggleLabel(String label) {
+    setState(() {
+      if (_labels.contains(label)) {
+        _labels.remove(label);
+      } else {
+        _labels.add(label);
+      }
+    });
+    _dirty = true;
+    _scheduleAutosave();
+  }
+
+  void _addCustomLabel() {
+    final trimmed = _newLabelController.text.trim();
+    if (trimmed.isEmpty) return;
+    final existingMatch = _catalogLabels.cast<String?>().firstWhere(
+      (item) => item!.toLowerCase() == trimmed.toLowerCase(),
+      orElse: () => null,
+    );
+    final resolved = existingMatch ?? trimmed;
+    setState(() {
+      if (!_catalogLabels.contains(resolved)) {
+        _catalogLabels = [..._catalogLabels, resolved]
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      }
+      if (!_labels.contains(resolved)) {
+        _labels.add(resolved);
+      }
+      _newLabelController.clear();
+    });
     _dirty = true;
     _scheduleAutosave();
   }
@@ -357,12 +409,12 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
           Divider(color: accent.withValues(alpha: 0.35), height: 20),
           Flexible(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 160, maxHeight: 340),
+              constraints: const BoxConstraints(minHeight: 140, maxHeight: 300),
               child: TextField(
                 key: const Key('note-content-input'),
                 controller: _contentController,
                 maxLines: null,
-                minLines: 6,
+                minLines: 5,
                 keyboardType: TextInputType.multiline,
                 style: text.bodyLarge,
                 decoration: const InputDecoration(
@@ -380,9 +432,88 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
+          _buildLabelsSection(context, accent),
+          const SizedBox(height: AppSpacing.md),
           _buildColorPicker(context, accent),
         ],
       ),
+    );
+  }
+
+  Widget _buildLabelsSection(BuildContext context, Color accent) {
+    final tokens = context.tokens;
+    final colors = context.colors;
+    final text = context.text;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.label_outline_rounded,
+              size: 16,
+              color: tokens.textMuted,
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              'Labels',
+              style: text.labelSmall?.copyWith(color: tokens.textMuted),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        if (_catalogLabels.isNotEmpty) ...[
+          Wrap(
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
+            children: _catalogLabels.map((label) {
+              final selected = _labels.contains(label);
+              return FilterChip(
+                key: Key('editor-label-chip-$label'),
+                label: Text(label),
+                selected: selected,
+                onSelected: (_) => _toggleLabel(label),
+                selectedColor: accent.withValues(alpha: 0.22),
+                side: BorderSide(color: selected ? accent : tokens.glassBorder),
+                labelStyle: text.labelSmall?.copyWith(
+                  color: selected ? colors.onSurface : tokens.textMuted,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+        ],
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('editor-new-label-input'),
+                controller: _newLabelController,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _addCustomLabel(),
+                style: text.bodySmall,
+                decoration: const InputDecoration(
+                  hintText: 'Attach a label...',
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.sm,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            IconButton(
+              key: const Key('editor-add-label-button'),
+              tooltip: 'Attach label',
+              onPressed: _addCustomLabel,
+              icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
+            ),
+          ],
+        ),
+      ],
     );
   }
 

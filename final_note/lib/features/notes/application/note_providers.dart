@@ -47,6 +47,39 @@ final accountNotesStreamProvider = StreamProvider.autoDispose<List<Note>>((
   return controller.stream;
 });
 
+/// Watches the label catalog for the active [AccountSession] (R20).
+final accountLabelsStreamProvider = StreamProvider.autoDispose<List<String>>((
+  ref,
+) {
+  final session = ref.watch(accountSessionProvider);
+  if (session == null || !session.isActive) {
+    return const Stream<List<String>>.empty();
+  }
+  final repository = ref.watch(noteRepositoryProvider);
+  final controller = StreamController<List<String>>();
+  final subscription = repository
+      .watchLabels(session.uid)
+      .listen(
+        (labels) {
+          if (session.isActive && !controller.isClosed) {
+            controller.add(labels);
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (session.isActive && !controller.isClosed) {
+            controller.addError(error, stackTrace);
+          }
+        },
+      );
+
+  ref.onDispose(() {
+    subscription.cancel();
+    controller.close();
+  });
+
+  return controller.stream;
+});
+
 enum NoteAutosavePhase { idle, saving, saved, error }
 
 class NoteActionState {
@@ -187,6 +220,82 @@ class NoteActions extends Notifier<NoteActionState> {
         );
       }
       return null;
+    }
+  }
+
+  Future<bool> addLabel(String label) async {
+    final session = _activeSession();
+    if (session == null) return false;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      await repository.addLabel(session.uid, label);
+      if (!ref.mounted || !session.isActive) return false;
+      state = state.copyWith(clearError: true);
+      return true;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return false;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not add label.');
+      }
+      return false;
+    }
+  }
+
+  Future<bool> renameLabel({
+    required String oldLabel,
+    required String newLabel,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return false;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      await repository.renameLabel(
+        session.uid,
+        oldLabel: oldLabel,
+        newLabel: newLabel,
+      );
+      if (!ref.mounted || !session.isActive) return false;
+      state = state.copyWith(clearError: true);
+      return true;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return false;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not rename label.');
+      }
+      return false;
+    }
+  }
+
+  Future<bool> deleteLabel(String label) async {
+    final session = _activeSession();
+    if (session == null) return false;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      await repository.deleteLabel(session.uid, label);
+      if (!ref.mounted || !session.isActive) return false;
+      state = state.copyWith(clearError: true);
+      return true;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return false;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not delete label.');
+      }
+      return false;
     }
   }
 

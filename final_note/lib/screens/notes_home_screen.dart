@@ -15,6 +15,7 @@ class NotesHomeScreen extends StatefulWidget {
     super.key,
     this.initialNotes,
     this.notes,
+    this.labels,
     this.isLoading = false,
     this.errorMessage,
     this.onRetry,
@@ -25,6 +26,9 @@ class NotesHomeScreen extends StatefulWidget {
     this.onSaveNote,
     this.onDeleteNote,
     this.onTogglePin,
+    this.onAddLabel,
+    this.onRenameLabel,
+    this.onDeleteLabel,
     this.editorDebounceDuration = const Duration(milliseconds: 400),
   });
 
@@ -33,6 +37,9 @@ class NotesHomeScreen extends StatefulWidget {
 
   /// Externally managed notes (e.g. from Riverpod [accountNotesStreamProvider]).
   final List<Note>? notes;
+
+  /// Externally managed label catalog (e.g. from [accountLabelsStreamProvider]).
+  final List<String>? labels;
 
   final bool isLoading;
   final String? errorMessage;
@@ -49,6 +56,9 @@ class NotesHomeScreen extends StatefulWidget {
   onSaveNote;
   final Future<bool> Function(String noteId)? onDeleteNote;
   final Future<Note?> Function(String noteId)? onTogglePin;
+  final Future<String?> Function(String name)? onAddLabel;
+  final Future<String?> Function(String oldName, String newName)? onRenameLabel;
+  final Future<String?> Function(String name)? onDeleteLabel;
 
   final Duration editorDebounceDuration;
 
@@ -58,6 +68,7 @@ class NotesHomeScreen extends StatefulWidget {
 
 class _NotesHomeScreenState extends State<NotesHomeScreen> {
   late final List<Note> _localNotes;
+  late final Set<String> _localLabelCatalog;
   final _searchController = TextEditingController();
   _NotesSection _section = _NotesSection.all;
   _NotesLayout _layout = _NotesLayout.grid;
@@ -72,6 +83,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   void initState() {
     super.initState();
     _localNotes = List<Note>.of(widget.initialNotes ?? createDemoNotes());
+    _localLabelCatalog = _localNotes.expand((note) => note.labels).toSet();
   }
 
   @override
@@ -83,9 +95,18 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   List<Note> get _allNotes => widget.notes ?? _localNotes;
 
   List<String> get _labels {
-    final labels = _allNotes.expand((note) => note.labels).toSet().toList()
-      ..sort();
-    return labels;
+    if (widget.labels != null) {
+      final merged = {
+        ...widget.labels!,
+        ..._allNotes.expand((n) => n.labels),
+      }.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      return merged;
+    }
+    final merged = {
+      ..._localLabelCatalog,
+      ..._localNotes.expand((note) => note.labels),
+    }.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return merged;
   }
 
   List<Note> get _visibleNotes {
@@ -119,6 +140,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     }
 
     setState(() {
+      _localLabelCatalog.addAll(draft.labels);
       final index = _localNotes.indexWhere((item) => item.id == draft.id);
       if (index == -1) {
         _localNotes.add(draft);
@@ -182,6 +204,96 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     });
   }
 
+  Future<String?> _handleAddLabel(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 'Enter a label name.';
+    if (widget.onAddLabel != null) {
+      return widget.onAddLabel!(trimmed);
+    }
+    if (_labels.any((item) => item.toLowerCase() == trimmed.toLowerCase())) {
+      return 'Label already exists.';
+    }
+    setState(() => _localLabelCatalog.add(trimmed));
+    return null;
+  }
+
+  Future<String?> _handleRenameLabel(String oldName, String newName) async {
+    final trimmedNew = newName.trim();
+    if (trimmedNew.isEmpty) return 'Enter a label name.';
+    if (widget.onRenameLabel != null) {
+      final error = await widget.onRenameLabel!(oldName, trimmedNew);
+      if (error == null && mounted && _selectedLabel == oldName) {
+        setState(() => _selectedLabel = trimmedNew);
+      }
+      return error;
+    }
+    if (_labels.any(
+      (item) =>
+          item != oldName && item.toLowerCase() == trimmedNew.toLowerCase(),
+    )) {
+      return 'Label already exists.';
+    }
+    setState(() {
+      _localLabelCatalog
+        ..remove(oldName)
+        ..add(trimmedNew);
+      for (var i = 0; i < _localNotes.length; i++) {
+        final note = _localNotes[i];
+        if (!note.labels.contains(oldName)) continue;
+        final updated = <String>[];
+        for (final label in note.labels) {
+          final next = label == oldName ? trimmedNew : label;
+          if (!updated.contains(next)) updated.add(next);
+        }
+        _localNotes[i] = note.copyWith(
+          labels: List<String>.unmodifiable(updated),
+        );
+      }
+      if (_selectedLabel == oldName) {
+        _selectedLabel = trimmedNew;
+      }
+    });
+    return null;
+  }
+
+  Future<String?> _handleDeleteLabel(String name) async {
+    if (widget.onDeleteLabel != null) {
+      final error = await widget.onDeleteLabel!(name);
+      if (error == null && mounted && _selectedLabel == name) {
+        setState(() => _selectedLabel = null);
+      }
+      return error;
+    }
+    setState(() {
+      _localLabelCatalog.remove(name);
+      for (var i = 0; i < _localNotes.length; i++) {
+        final note = _localNotes[i];
+        if (!note.labels.contains(name)) continue;
+        _localNotes[i] = note.copyWith(
+          labels: List<String>.unmodifiable(
+            note.labels.where((item) => item != name),
+          ),
+        );
+      }
+      if (_selectedLabel == name) {
+        _selectedLabel = null;
+      }
+    });
+    return null;
+  }
+
+  void _openManageLabelsDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => LabelManagementDialog(
+        initialLabels: _labels,
+        onAddLabel: _handleAddLabel,
+        onRenameLabel: _handleRenameLabel,
+        onDeleteLabel: _handleDeleteLabel,
+      ),
+    );
+  }
+
   void _openEditor({Note? note, required bool isWide}) {
     if (isWide) {
       setState(() {
@@ -204,6 +316,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           child: SingleChildScrollView(
             child: NoteEditorPanel(
               initialNote: note,
+              availableLabels: _labels,
               debounceDuration: widget.editorDebounceDuration,
               onSave: _saveNote,
               onDelete: (target) => _deleteNoteWithoutConfirm(target.id),
@@ -266,6 +379,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                               _activeEditorNote?.id ?? 'new-note-panel',
                             ),
                             initialNote: _activeEditorNote,
+                            availableLabels: _labels,
                             embedded: true,
                             debounceDuration: widget.editorDebounceDuration,
                             onSave: _saveNote,
@@ -375,15 +489,28 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           Padding(
             padding: const EdgeInsets.only(
               left: AppSpacing.md,
-              bottom: AppSpacing.sm,
+              bottom: AppSpacing.xs,
             ),
-            child: Text(
-              'YOUR LABELS',
-              style: text.labelSmall?.copyWith(
-                color: tokens.textMuted,
-                letterSpacing: 1.1,
-                fontWeight: FontWeight.w700,
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'YOUR LABELS',
+                    style: text.labelSmall?.copyWith(
+                      color: tokens.textMuted,
+                      letterSpacing: 1.1,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  key: const Key('sidebar-manage-labels'),
+                  tooltip: 'Manage labels',
+                  onPressed: _openManageLabelsDialog,
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.edit_note_rounded, size: 18),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -529,10 +656,8 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               const SizedBox(height: AppSpacing.lg),
               _buildSectionHeading(context, notes.length),
               const SizedBox(height: AppSpacing.md),
-              if (_labels.isNotEmpty) ...[
-                _buildLabelFilters(context),
-                const SizedBox(height: AppSpacing.lg),
-              ],
+              _buildLabelFilters(context),
+              const SizedBox(height: AppSpacing.lg),
               if (widget.isLoading)
                 const LoadingStateView(message: 'Loading your notes...')
               else if (widget.errorMessage != null)
@@ -788,11 +913,18 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             icon: const Icon(Icons.close_rounded, size: 16),
             label: const Text('Clear filter'),
           ),
+        TextButton.icon(
+          key: const Key('manage-labels-button'),
+          onPressed: _openManageLabelsDialog,
+          icon: const Icon(Icons.label_outline_rounded, size: 16),
+          label: const Text('Manage labels'),
+        ),
       ],
     );
   }
 
   Widget _buildLabelFilters(BuildContext context) {
+    if (_labels.isEmpty) return const SizedBox.shrink();
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -1071,6 +1203,7 @@ class _LabelFilterChip extends StatelessWidget {
     final colors = context.colors;
 
     return FilterChip(
+      key: Key('filter-label-chip-$label'),
       label: Text(label),
       selected: selected,
       onSelected: (_) => onTap(),

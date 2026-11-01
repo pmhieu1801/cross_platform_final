@@ -23,6 +23,7 @@ class HomeScreen extends ConsumerWidget {
 
     final authAction = ref.watch(authActionsProvider);
     final notesAsync = ref.watch(accountNotesStreamProvider);
+    final labelsAsync = ref.watch(accountLabelsStreamProvider);
     final noteActions = ref.read(noteActionsProvider.notifier);
 
     final isLoading = notesAsync.isLoading;
@@ -30,6 +31,9 @@ class HomeScreen extends ConsumerWidget {
     final notes = (!isLoading && !hasError)
         ? (notesAsync.asData?.value ?? const <Note>[])
         : const <Note>[];
+    final labels = (!labelsAsync.isLoading && !labelsAsync.hasError)
+        ? (labelsAsync.asData?.value ?? const <String>[])
+        : const <String>[];
 
     return NotesHomeScreen(
       key: ValueKey(account.uid),
@@ -38,6 +42,7 @@ class HomeScreen extends ConsumerWidget {
       authError: authAction.error,
       onLogout: ref.read(authActionsProvider.notifier).signOut,
       notes: notes,
+      labels: labels,
       isLoading: isLoading,
       errorMessage: hasError ? 'Không thể tải danh sách ghi chú.' : null,
       onRetry: () => ref.invalidate(accountNotesStreamProvider),
@@ -45,6 +50,21 @@ class HomeScreen extends ConsumerWidget {
           noteActions.saveNote(draft, isAutosave: isAutosave),
       onDeleteNote: noteActions.deleteNote,
       onTogglePin: noteActions.togglePin,
+      onAddLabel: (name) async {
+        final ok = await noteActions.addLabel(name);
+        return ok ? null : ref.read(noteActionsProvider).error;
+      },
+      onRenameLabel: (oldName, newName) async {
+        final ok = await noteActions.renameLabel(
+          oldLabel: oldName,
+          newLabel: newName,
+        );
+        return ok ? null : ref.read(noteActionsProvider).error;
+      },
+      onDeleteLabel: (name) async {
+        final ok = await noteActions.deleteLabel(name);
+        return ok ? null : ref.read(noteActionsProvider).error;
+      },
     );
   }
 }
