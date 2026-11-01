@@ -15,12 +15,26 @@ abstract interface class AuthRepository {
   /// First event resolves persisted session; null means signed out.
   Stream<AuthUser?> watchSession();
   Future<void> signIn({required String email, required String password});
-  Future<void> register({
+  Future<RegistrationResult> register({
     required String email,
     required String displayName,
     required String password,
   });
   Future<void> signOut();
+  Future<void> sendVerificationEmail(String expectedUid);
+  Future<void> refreshCurrentUser(String expectedUid);
+}
+
+/// Account creation is committed even if a later profile/email step fails.
+class RegistrationResult {
+  const RegistrationResult({
+    required this.uid,
+    required this.verificationSent,
+    this.warning,
+  });
+  final String uid;
+  final bool verificationSent;
+  final String? warning;
 }
 
 class AuthFailure implements Exception {

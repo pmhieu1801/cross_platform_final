@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/application/auth_providers.dart';
+import '../auth/presentation/verification_banner.dart';
 
 /// W1 destination only. Notes UI/repositories belong to M2.
 class HomeScreen extends ConsumerWidget {
@@ -24,15 +25,7 @@ class HomeScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(24),
             children: [
               if (!user.emailVerified) ...[
-                const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'Email chưa được xác minh. Vui lòng hoàn tất xác minh email. '
-                      'Bạn vẫn có thể sử dụng ứng dụng.',
-                    ),
-                  ),
-                ),
+                VerificationBanner(key: ValueKey(user.uid), uid: user.uid),
                 const SizedBox(height: 24),
               ],
               Text(

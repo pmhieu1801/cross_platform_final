@@ -9,7 +9,9 @@ Source: `lib/features/auth/domain/auth_repository.dart`, `application/auth_provi
 | Thành phần | Contract |
 | --- | --- |
 | AuthUser | uid:String, email:String?, displayName:String?, emailVerified:bool; snapshot bất biến, không có password/token |
-| AuthRepository | watchSession(), signIn(email,password), register(email,displayName,password), signOut() |
+| AuthRepository | watchSession(), signIn(email,password), register(email,displayName,password) → RegistrationResult, signOut(), sendVerificationEmail(expectedUid), refreshCurrentUser(expectedUid) |
+| RegistrationResult (W2-01) | uid, verificationSent, warning; account đã tồn tại dù bước tên/mail thất bại; không chứa password/token/action code |
+| verificationActionsProvider(uid) (W2-01) | sending/refreshing/retryAt/message/error; resend()/refresh(); feedback theo UID và lease, cooldown gửi lại 60 giây trong tiến trình |
 | authSessionProvider | AsyncValue<AuthUser?>: loading chưa biết phiên; data(null) signed out; data(user) signed in; error không xác định được phiên |
 | authenticatedUserProvider | Chỉ trả user khi có dữ liệu phiên chắc chắn; null cả khi loading/error dù Riverpod đang giữ kết quả cũ |
 | authenticatedUidProvider | UID Firebase nguyên bản hoặc null; không dùng email làm khóa dữ liệu |
@@ -31,7 +33,13 @@ Guard chỉ bảo vệ UI. M3 vẫn phải kiểm tra `request.auth.uid` và quy
 
 ## Activation
 
-Tài khoản đăng ký thành công tự có session. Adapter cập nhật displayName vào Firebase Auth; nếu bước đó lỗi sau khi tạo account, UI báo rõ account đã tạo, tránh khuyến khích đăng ký trùng. `emailVerified == false` hiển thị banner thường trực ở private shell, không chặn chức năng. W1 chưa gửi email/xử lý link/reload verify state tự động; các phần đó thuộc W2 và cần test cả Web/native. R1/R2 vì thế chưa hoàn thành toàn phần theo đề gốc.
+W2-01: tài khoản đăng ký thành công tự có session. Adapter thử cập nhật displayName rồi gửi verification bằng SDK, vẫn thử mail nếu bước tên lỗi. Kết quả có warning cho bước thất bại, không yêu cầu đăng ký lại. AuthActions giữ feedback theo UID ngay cả khi Future hoàn tất trước session event, nhưng bỏ kết quả sau logout/chuyển tài khoản xen giữa.
+
+`emailVerified == false` hiển thị VerificationBanner ở private shell, không chặn chức năng. Nút gửi lại có loading/chống gửi lặp/cooldown 60 giây sau request thành công; cooldown là UX local trong tiến trình, không bền qua restart và không thay thế rate limit Firebase. Nút kiểm tra và app resume gọi `refreshCurrentUser(expectedUid)` → SDK User.reload() → userChanges() → snapshot mới. Chỉ SDK flag true mới bỏ banner; controller không tự gán verified.
+
+Handler lựa chọn cho W2-01 là trang HTTPS mặc định Firebase, mở trong browser cả Web/Android. Không có continue URL, custom Flutter action route hoặc Dynamic Links; không lấy/lưu/log action code trong app. Không cần đổi public route allowlist cho handler ngoài app. Kiểm thử địa chỉ triển khai Web cuối vẫn cần riêng; xem [evidence W2](m1-week2-verification.md), không suy full R1/R2 từ fake tests/build.
+
+M2 khi đưa Notes vào private shell cần giữ VerificationBanner theo UID ở shell dùng chung. W2-01 chỉ nối banner vào HomeScreen hiện có, không tạo hoặc thay Notes UI/repository. M3 review UID/SDK boundary; schema/rules không thay đổi. Contract API mới là implementation M1 chờ review, chưa phải signoff nhóm.
 
 ## Logout và ranh giới tài khoản
 
