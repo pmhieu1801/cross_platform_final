@@ -112,4 +112,22 @@ void main() {
     expect(find.text('Project kickoff'), findsOneWidget);
     expect(find.byType(GridView), findsNothing);
   });
+
+  testWidgets('notes dashboard can create a new note', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: NotesHomeScreen()));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).at(0), 'Launch plan');
+    await tester.enterText(
+      find.byType(TextField).at(1),
+      'Finalize the roadmap and confirm milestones with the team.',
+    );
+    await tester.enterText(find.byType(TextField).at(2), 'Planning, Team');
+    await tester.tap(find.text('Create note'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Launch plan'), findsOneWidget);
+  });
 }
