@@ -8,6 +8,7 @@ class Note {
     required this.updatedAt,
     this.isPinned = false,
     this.pinnedAt,
+    this.ownerUid,
   });
 
   final String id;
@@ -18,8 +19,10 @@ class Note {
   final DateTime updatedAt;
   final bool isPinned;
   final DateTime? pinnedAt;
+  final String? ownerUid;
 
   Note copyWith({
+    String? id,
     String? title,
     String? content,
     List<String>? labels,
@@ -28,9 +31,10 @@ class Note {
     bool? isPinned,
     DateTime? pinnedAt,
     bool clearPinnedAt = false,
+    String? ownerUid,
   }) {
     return Note(
-      id: id,
+      id: id ?? this.id,
       title: title ?? this.title,
       content: content ?? this.content,
       labels: labels ?? this.labels,
@@ -38,11 +42,34 @@ class Note {
       updatedAt: updatedAt ?? this.updatedAt,
       isPinned: isPinned ?? this.isPinned,
       pinnedAt: clearPinnedAt ? null : pinnedAt ?? this.pinnedAt,
+      ownerUid: ownerUid ?? this.ownerUid,
     );
   }
 }
 
-List<Note> createDemoNotes() {
+/// Deterministic note ordering (R17):
+/// 1. Pinned notes come before unpinned notes.
+/// 2. Among pinned notes, order by [Note.pinnedAt] (falling back to
+///    [Note.updatedAt]) descending.
+/// 3. Otherwise order by [Note.updatedAt] descending, breaking ties by [Note.id].
+List<Note> sortNotes(Iterable<Note> source) {
+  final list = List<Note>.of(source);
+  list.sort((a, b) {
+    if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+    if (a.isPinned && b.isPinned) {
+      final pinnedOrder = (b.pinnedAt ?? b.updatedAt).compareTo(
+        a.pinnedAt ?? a.updatedAt,
+      );
+      if (pinnedOrder != 0) return pinnedOrder;
+    }
+    final updatedOrder = b.updatedAt.compareTo(a.updatedAt);
+    if (updatedOrder != 0) return updatedOrder;
+    return a.id.compareTo(b.id);
+  });
+  return list;
+}
+
+List<Note> createDemoNotes({String? ownerUid}) {
   final now = DateTime.now();
 
   return [
@@ -55,6 +82,7 @@ List<Note> createDemoNotes() {
       updatedAt: now.subtract(const Duration(minutes: 18)),
       isPinned: true,
       pinnedAt: now.subtract(const Duration(days: 1)),
+      ownerUid: ownerUid,
     ),
     Note(
       id: 'note-2',
@@ -65,6 +93,7 @@ List<Note> createDemoNotes() {
       updatedAt: now.subtract(const Duration(hours: 2)),
       isPinned: true,
       pinnedAt: now.subtract(const Duration(hours: 10)),
+      ownerUid: ownerUid,
     ),
     Note(
       id: 'note-3',
@@ -73,6 +102,7 @@ List<Note> createDemoNotes() {
       labels: const ['Personal'],
       colorIndex: 2,
       updatedAt: now.subtract(const Duration(days: 1)),
+      ownerUid: ownerUid,
     ),
     Note(
       id: 'note-4',
@@ -81,6 +111,7 @@ List<Note> createDemoNotes() {
       labels: const ['Ideas', 'Learning'],
       colorIndex: 3,
       updatedAt: now.subtract(const Duration(days: 2)),
+      ownerUid: ownerUid,
     ),
     Note(
       id: 'note-5',
@@ -89,6 +120,7 @@ List<Note> createDemoNotes() {
       labels: const ['Personal'],
       colorIndex: 4,
       updatedAt: now.subtract(const Duration(days: 3)),
+      ownerUid: ownerUid,
     ),
     Note(
       id: 'note-6',
@@ -97,6 +129,7 @@ List<Note> createDemoNotes() {
       labels: const ['Ideas'],
       colorIndex: 5,
       updatedAt: now.subtract(const Duration(days: 4)),
+      ownerUid: ownerUid,
     ),
   ];
 }
