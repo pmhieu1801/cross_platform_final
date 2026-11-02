@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/note.dart';
 import '../../screens/notes_home_screen.dart';
 import '../auth/application/auth_providers.dart';
+import '../auth/presentation/verification_banner.dart';
 import '../notes/application/note_providers.dart';
 
 /// Account-scoped Notes destination for `/home`.
@@ -38,6 +39,9 @@ class HomeScreen extends ConsumerWidget {
     return NotesHomeScreen(
       key: ValueKey(account.uid),
       user: user,
+      verificationBanner: !user.emailVerified
+          ? VerificationBanner(key: ValueKey(user.uid), uid: user.uid)
+          : null,
       authBusy: authAction.busy,
       authError: authAction.error,
       onLogout: ref.read(authActionsProvider.notifier).signOut,

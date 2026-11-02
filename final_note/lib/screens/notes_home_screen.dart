@@ -20,6 +20,7 @@ class NotesHomeScreen extends StatefulWidget {
     this.errorMessage,
     this.onRetry,
     this.user,
+    this.verificationBanner,
     this.authBusy = false,
     this.authError,
     this.onLogout,
@@ -47,6 +48,7 @@ class NotesHomeScreen extends StatefulWidget {
 
   /// Authenticated user metadata for `/home` header & verification banner.
   final AuthUser? user;
+  final Widget? verificationBanner;
   final bool authBusy;
   final String? authError;
   final VoidCallback? onLogout;
@@ -608,7 +610,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             ),
             children: [
               if (widget.user != null && !widget.user!.emailVerified) ...[
-                _buildUnverifiedBanner(context),
+                widget.verificationBanner ?? _buildUnverifiedBanner(context),
                 const SizedBox(height: AppSpacing.md),
               ],
               if (widget.authError != null) ...[
@@ -885,39 +887,54 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     final text = context.text;
     final colors = context.colors;
 
-    return Row(
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.xs,
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Text(
-          'All notes',
-          style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-          decoration: BoxDecoration(
-            color: colors.primaryContainer,
-            borderRadius: AppRadius.pillAll,
-          ),
-          child: Text(
-            '$count',
-            style: text.labelSmall?.copyWith(
-              color: colors.onPrimaryContainer,
-              fontWeight: FontWeight.w700,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'All notes',
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
-          ),
+            const SizedBox(width: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              decoration: BoxDecoration(
+                color: colors.primaryContainer,
+                borderRadius: AppRadius.pillAll,
+              ),
+              child: Text(
+                '$count',
+                style: text.labelSmall?.copyWith(
+                  color: colors.onPrimaryContainer,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
-        const Spacer(),
-        if (_selectedLabel != null)
-          TextButton.icon(
-            onPressed: () => setState(() => _selectedLabel = null),
-            icon: const Icon(Icons.close_rounded, size: 16),
-            label: const Text('Clear filter'),
-          ),
-        TextButton.icon(
-          key: const Key('manage-labels-button'),
-          onPressed: _openManageLabelsDialog,
-          icon: const Icon(Icons.label_outline_rounded, size: 16),
-          label: const Text('Manage labels'),
+        Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            if (_selectedLabel != null)
+              TextButton.icon(
+                onPressed: () => setState(() => _selectedLabel = null),
+                icon: const Icon(Icons.close_rounded, size: 16),
+                label: const Text('Clear filter'),
+              ),
+            TextButton.icon(
+              key: const Key('manage-labels-button'),
+              onPressed: _openManageLabelsDialog,
+              icon: const Icon(Icons.label_outline_rounded, size: 16),
+              label: const Text('Manage labels'),
+            ),
+          ],
         ),
       ],
     );
