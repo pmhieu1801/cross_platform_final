@@ -21,6 +21,38 @@ class Note {
   final DateTime? pinnedAt;
   final String? ownerUid;
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'content': content,
+        'labels': labels,
+        'colorIndex': colorIndex,
+        'updatedAt': updatedAt.toIso8601String(),
+        'isPinned': isPinned,
+        'pinnedAt': pinnedAt?.toIso8601String(),
+      };
+
+  factory Note.fromJson(Map<String, dynamic> json) {
+    final labels = (json['labels'] as List?)
+            ?.map((label) => label.toString())
+            .toList() ??
+        const <String>[];
+
+    return Note(
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      content: json['content']?.toString() ?? '',
+      labels: labels,
+      colorIndex: int.tryParse(json['colorIndex']?.toString() ?? '0') ?? 0,
+      updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? '') ??
+          DateTime.now(),
+      isPinned: json['isPinned'] == true,
+      pinnedAt: json['pinnedAt'] == null
+          ? null
+          : DateTime.tryParse(json['pinnedAt'].toString()),
+    );
+  }
+
   Note copyWith({
     String? id,
     String? title,
