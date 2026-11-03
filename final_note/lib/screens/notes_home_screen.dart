@@ -1,64 +1,91 @@
 import 'package:flutter/material.dart';
 
+import '../features/auth/domain/auth_repository.dart';
 import '../models/note.dart';
-import '../services/note_storage.dart';
-
-const _pageColor = Color(0xFFFAF9F6);
-const _inkColor = Color(0xFF202A26);
-const _mutedColor = Color(0xFF77817C);
-const _accentColor = Color(0xFF315C4C);
-const _noteColors = [
-  Color(0xFFF7E7D5),
-  Color(0xFFE3EEE7),
-  Color(0xFFEAE7F4),
-  Color(0xFFF4E5E5),
-  Color(0xFFE5EDF4),
-  Color(0xFFF1EFD9),
-];
+import '../theme/theme.dart';
+import '../widgets/widgets.dart';
+import 'note_editor_sheet.dart';
 
 enum _NotesSection { all, pinned }
 
 enum _NotesLayout { grid, list }
 
 class NotesHomeScreen extends StatefulWidget {
-  const NotesHomeScreen({super.key, this.initialNotes});
+  const NotesHomeScreen({
+    super.key,
+    this.initialNotes,
+    this.notes,
+    this.labels,
+    this.isLoading = false,
+    this.errorMessage,
+    this.onRetry,
+    this.user,
+    this.verificationBanner,
+    this.authBusy = false,
+    this.authError,
+    this.onLogout,
+    this.onSaveNote,
+    this.onDeleteNote,
+    this.onTogglePin,
+    this.onAddLabel,
+    this.onRenameLabel,
+    this.onDeleteLabel,
+    this.editorDebounceDuration = const Duration(milliseconds: 400),
+  });
 
+  /// Used when [NotesHomeScreen] is mounted standalone without external state.
   final List<Note>? initialNotes;
+
+  /// Externally managed notes (e.g. from Riverpod [accountNotesStreamProvider]).
+  final List<Note>? notes;
+
+  /// Externally managed label catalog (e.g. from [accountLabelsStreamProvider]).
+  final List<String>? labels;
+
+  final bool isLoading;
+  final String? errorMessage;
+  final VoidCallback? onRetry;
+
+  /// Authenticated user metadata for `/home` header & verification banner.
+  final AuthUser? user;
+  final Widget? verificationBanner;
+  final bool authBusy;
+  final String? authError;
+  final VoidCallback? onLogout;
+
+  /// External persistence callbacks. When omitted, mutations update local state.
+  final Future<Note?> Function(Note note, {required bool isAutosave})?
+  onSaveNote;
+  final Future<bool> Function(String noteId)? onDeleteNote;
+  final Future<Note?> Function(String noteId)? onTogglePin;
+  final Future<String?> Function(String name)? onAddLabel;
+  final Future<String?> Function(String oldName, String newName)? onRenameLabel;
+  final Future<String?> Function(String name)? onDeleteLabel;
+
+  final Duration editorDebounceDuration;
 
   @override
   State<NotesHomeScreen> createState() => _NotesHomeScreenState();
 }
 
 class _NotesHomeScreenState extends State<NotesHomeScreen> {
-  List<Note> _notes = const <Note>[];
+  late final List<Note> _localNotes;
+  late final Set<String> _localLabelCatalog;
   final _searchController = TextEditingController();
   _NotesSection _section = _NotesSection.all;
   _NotesLayout _layout = _NotesLayout.grid;
   String? _selectedLabel;
   String _query = '';
 
-  bool _isLoaded = false;
+  /// Currently open note in the desktop side-by-side editor (`null` if closed).
+  Note? _activeEditorNote;
+  bool _isCreatingNew = false;
 
   @override
   void initState() {
     super.initState();
-    _notes = List.of(widget.initialNotes ?? const <Note>[]);
-    _loadSavedNotes();
-  }
-
-  Future<void> _loadSavedNotes() async {
-    final saved = widget.initialNotes ?? await NoteStorage.loadNotes();
-    if (!mounted) return;
-
-    setState(() {
-      _notes = List.of(saved);
-      _isLoaded = true;
-    });
-  }
-
-  Future<void> _persistNotes() async {
-    if (!_isLoaded) return;
-    await NoteStorage.saveNotes(_notes);
+    _localNotes = List<Note>.of(widget.initialNotes ?? createDemoNotes());
+    _localLabelCatalog = _localNotes.expand((note) => note.labels).toSet();
   }
 
   @override
@@ -67,15 +94,26 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     super.dispose();
   }
 
+  List<Note> get _allNotes => widget.notes ?? _localNotes;
+
   List<String> get _labels {
-    final labels = _notes.expand((note) => note.labels).toSet().toList()
-      ..sort();
-    return labels;
+    if (widget.labels != null) {
+      final merged = {
+        ...widget.labels!,
+        ..._allNotes.expand((n) => n.labels),
+      }.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      return merged;
+    }
+    final merged = {
+      ..._localLabelCatalog,
+      ..._localNotes.expand((note) => note.labels),
+    }.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return merged;
   }
 
   List<Note> get _visibleNotes {
     final query = _query.trim().toLowerCase();
-    final visible = _notes.where((note) {
+    final filtered = _allNotes.where((note) {
       final matchesSection = _section == _NotesSection.all || note.isPinned;
       final matchesLabel =
           _selectedLabel == null || note.labels.contains(_selectedLabel);
@@ -85,32 +123,85 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           note.content.toLowerCase().contains(query) ||
           note.labels.any((label) => label.toLowerCase().contains(query));
       return matchesSection && matchesLabel && matchesQuery;
-    }).toList();
-
-    visible.sort((a, b) {
-      if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
-      if (a.isPinned && b.isPinned) {
-        final pinnedOrder = (b.pinnedAt ?? b.updatedAt).compareTo(
-          a.pinnedAt ?? a.updatedAt,
-        );
-        if (pinnedOrder != 0) return pinnedOrder;
-      }
-      return b.updatedAt.compareTo(a.updatedAt);
     });
-    return visible;
+    return sortNotes(filtered);
   }
 
-  void _togglePin(Note note) {
-    final index = _notes.indexWhere((item) => item.id == note.id);
+  Future<Note?> _saveNote(Note draft, {required bool isAutosave}) async {
+    if (widget.onSaveNote != null) {
+      final saved = await widget.onSaveNote!(draft, isAutosave: isAutosave);
+      if (saved != null &&
+          mounted &&
+          (_isCreatingNew || _activeEditorNote != null)) {
+        setState(() {
+          _activeEditorNote = saved;
+          _isCreatingNew = false;
+        });
+      }
+      return saved;
+    }
+
+    setState(() {
+      _localLabelCatalog.addAll(draft.labels);
+      final index = _localNotes.indexWhere((item) => item.id == draft.id);
+      if (index == -1) {
+        _localNotes.add(draft);
+      } else {
+        _localNotes[index] = draft;
+      }
+      if (_isCreatingNew || _activeEditorNote != null) {
+        _activeEditorNote = draft;
+        _isCreatingNew = false;
+      }
+    });
+    return draft;
+  }
+
+  Future<bool> _deleteNoteWithoutConfirm(String noteId) async {
+    if (widget.onDeleteNote != null) {
+      final ok = await widget.onDeleteNote!(noteId);
+      if (ok && mounted && _activeEditorNote?.id == noteId) {
+        setState(() {
+          _activeEditorNote = null;
+          _isCreatingNew = false;
+        });
+      }
+      return ok;
+    }
+
+    setState(() {
+      _localNotes.removeWhere((item) => item.id == noteId);
+      if (_activeEditorNote?.id == noteId) {
+        _activeEditorNote = null;
+        _isCreatingNew = false;
+      }
+    });
+    return true;
+  }
+
+  Future<void> _confirmAndDelete(Note note) async {
+    final confirmed = await confirmDeleteNote(context, title: note.title);
+    if (!confirmed || !mounted) return;
+    await _deleteNoteWithoutConfirm(note.id);
+  }
+
+  Future<void> _togglePin(Note note) async {
+    if (widget.onTogglePin != null) {
+      await widget.onTogglePin!(note.id);
+      return;
+    }
+
+    final index = _localNotes.indexWhere((item) => item.id == note.id);
     if (index == -1) return;
 
     final pinning = !note.isPinned;
+    final now = DateTime.now();
     setState(() {
-      _notes[index] = note.copyWith(
+      _localNotes[index] = note.copyWith(
         isPinned: pinning,
-        pinnedAt: pinning ? DateTime.now() : null,
+        pinnedAt: pinning ? now : null,
         clearPinnedAt: !pinning,
-        updatedAt: DateTime.now(),
+        updatedAt: now,
       );
     });
     Future.microtask(_persistNotes);
@@ -179,37 +270,127 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     Future.microtask(_persistNotes);
   }
 
-  void _showPreview(Note note) {
+  Future<String?> _handleAddLabel(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 'Enter a label name.';
+    if (widget.onAddLabel != null) {
+      return widget.onAddLabel!(trimmed);
+    }
+    if (_labels.any((item) => item.toLowerCase() == trimmed.toLowerCase())) {
+      return 'Label already exists.';
+    }
+    setState(() => _localLabelCatalog.add(trimmed));
+    return null;
+  }
+
+  Future<String?> _handleRenameLabel(String oldName, String newName) async {
+    final trimmedNew = newName.trim();
+    if (trimmedNew.isEmpty) return 'Enter a label name.';
+    if (widget.onRenameLabel != null) {
+      final error = await widget.onRenameLabel!(oldName, trimmedNew);
+      if (error == null && mounted && _selectedLabel == oldName) {
+        setState(() => _selectedLabel = trimmedNew);
+      }
+      return error;
+    }
+    if (_labels.any(
+      (item) =>
+          item != oldName && item.toLowerCase() == trimmedNew.toLowerCase(),
+    )) {
+      return 'Label already exists.';
+    }
+    setState(() {
+      _localLabelCatalog
+        ..remove(oldName)
+        ..add(trimmedNew);
+      for (var i = 0; i < _localNotes.length; i++) {
+        final note = _localNotes[i];
+        if (!note.labels.contains(oldName)) continue;
+        final updated = <String>[];
+        for (final label in note.labels) {
+          final next = label == oldName ? trimmedNew : label;
+          if (!updated.contains(next)) updated.add(next);
+        }
+        _localNotes[i] = note.copyWith(
+          labels: List<String>.unmodifiable(updated),
+        );
+      }
+      if (_selectedLabel == oldName) {
+        _selectedLabel = trimmedNew;
+      }
+    });
+    return null;
+  }
+
+  Future<String?> _handleDeleteLabel(String name) async {
+    if (widget.onDeleteLabel != null) {
+      final error = await widget.onDeleteLabel!(name);
+      if (error == null && mounted && _selectedLabel == name) {
+        setState(() => _selectedLabel = null);
+      }
+      return error;
+    }
+    setState(() {
+      _localLabelCatalog.remove(name);
+      for (var i = 0; i < _localNotes.length; i++) {
+        final note = _localNotes[i];
+        if (!note.labels.contains(name)) continue;
+        _localNotes[i] = note.copyWith(
+          labels: List<String>.unmodifiable(
+            note.labels.where((item) => item != name),
+          ),
+        );
+      }
+      if (_selectedLabel == name) {
+        _selectedLabel = null;
+      }
+    });
+    return null;
+  }
+
+  void _openManageLabelsDialog() {
     showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: _noteColors[note.colorIndex % _noteColors.length],
-        title: Text(note.title),
-        content: SingleChildScrollView(
-          child: Text(note.content.isEmpty ? 'No content yet.' : note.content),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _openEditor(note: note);
-            },
-            child: const Text('Edit'),
-          ),
-          FilledButton.icon(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _deleteNote(note);
-            },
-            icon: const Icon(Icons.delete_outline_rounded),
-            label: const Text('Delete'),
-          ),
-        ],
+      builder: (_) => LabelManagementDialog(
+        initialLabels: _labels,
+        onAddLabel: _handleAddLabel,
+        onRenameLabel: _handleRenameLabel,
+        onDeleteLabel: _handleDeleteLabel,
       ),
+    );
+  }
+
+  void _openEditor({Note? note, required bool isWide}) {
+    if (isWide) {
+      setState(() {
+        _activeEditorNote = note;
+        _isCreatingNew = note == null;
+      });
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: SingleChildScrollView(
+            child: NoteEditorPanel(
+              initialNote: note,
+              availableLabels: _labels,
+              debounceDuration: widget.editorDebounceDuration,
+              onSave: _saveNote,
+              onDelete: (target) => _deleteNoteWithoutConfirm(target.id),
+              onClose: () => Navigator.of(sheetContext).pop(),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -217,36 +398,76 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 980;
-        final isCompact = constraints.maxWidth < 600;
+        final isWide = constraints.maxWidth >= AppBreakpoints.expanded;
+        final isCompact = constraints.maxWidth < AppBreakpoints.medium;
         final notes = _visibleNotes;
+        final showSideEditor =
+            isWide && (_isCreatingNew || _activeEditorNote != null);
 
         return Scaffold(
-          backgroundColor: _pageColor,
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => _openEditor(),
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('New note'),
-          ),
-          body: SafeArea(
-            bottom: !isCompact,
-            child: Row(
-              children: [
-                if (isWide) _buildSidebar(),
-                Expanded(
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1320),
-                      child: _buildContent(
-                        notes: notes,
-                        isCompact: isCompact,
-                        isWide: isWide,
+          body: AppBackground(
+            child: SafeArea(
+              bottom: !isCompact,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (isWide) _buildSidebar(context, isWide: isWide),
+                  Expanded(
+                    flex: 7,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1320),
+                        child: _buildMainContent(
+                          context,
+                          notes: notes,
+                          isCompact: isCompact,
+                          isWide: isWide,
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                  if (showSideEditor)
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minWidth: AppSizes.editorPanelMinWidth,
+                        maxWidth: 440,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          0,
+                          AppSpacing.lg,
+                          AppSpacing.lg,
+                          AppSpacing.lg,
+                        ),
+                        child: SingleChildScrollView(
+                          child: NoteEditorPanel(
+                            key: ValueKey(
+                              _activeEditorNote?.id ?? 'new-note-panel',
+                            ),
+                            initialNote: _activeEditorNote,
+                            availableLabels: _labels,
+                            embedded: true,
+                            debounceDuration: widget.editorDebounceDuration,
+                            onSave: _saveNote,
+                            onDelete: (target) =>
+                                _deleteNoteWithoutConfirm(target.id),
+                            onClose: () => setState(() {
+                              _activeEditorNote = null;
+                              _isCreatingNew = false;
+                            }),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
+          ),
+          floatingActionButton: FloatingActionButton.extended(
+            key: const Key('create-note-button'),
+            onPressed: () => _openEditor(isWide: isWide),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('New note'),
           ),
           bottomNavigationBar: isWide
               ? null
@@ -278,45 +499,39 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
-  Widget _buildSidebar() {
+  Widget _buildSidebar(BuildContext context, {required bool isWide}) {
+    final tokens = context.tokens;
+    final colors = context.colors;
+    final text = context.text;
+
     return Container(
-      width: 252,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(right: BorderSide(color: Color(0xFFECEEEA))),
+      width: AppSizes.sidebarWidth,
+      decoration: BoxDecoration(
+        color: tokens.glassFill,
+        border: Border(right: BorderSide(color: tokens.glassBorder)),
       ),
-      padding: const EdgeInsets.fromLTRB(22, 28, 18, 20),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.xl,
+        AppSpacing.lg,
+        AppSpacing.lg,
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: _accentColor,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.auto_awesome_rounded,
-                  color: Colors.white,
-                  size: 21,
-                ),
-              ),
-              const SizedBox(width: 11),
-              const Text(
-                'NoteFlow',
-                style: TextStyle(
-                  color: _inkColor,
-                  fontSize: 21,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.6,
-                ),
-              ),
-            ],
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: BrandBadge(size: 38),
           ),
-          const SizedBox(height: 36),
+          const SizedBox(height: AppSpacing.xl),
+          GradientButton(
+            key: const Key('sidebar-create-note'),
+            label: 'New note',
+            icon: Icons.add_rounded,
+            height: 46,
+            onPressed: () => _openEditor(isWide: isWide),
+          ),
+          const SizedBox(height: AppSpacing.xl),
           _SidebarItem(
             icon: Icons.notes_rounded,
             label: 'All notes',
@@ -326,7 +541,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               _selectedLabel = null;
             }),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: AppSpacing.xs),
           _SidebarItem(
             icon: Icons.push_pin_outlined,
             label: 'Pinned',
@@ -336,65 +551,93 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               _selectedLabel = null;
             }),
           ),
-          const SizedBox(height: 32),
-          const Padding(
-            padding: EdgeInsets.only(left: 12, bottom: 12),
-            child: Text(
-              'YOUR LABELS',
-              style: TextStyle(
-                color: _mutedColor,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.1,
-              ),
+          const SizedBox(height: AppSpacing.xl),
+          Padding(
+            padding: const EdgeInsets.only(
+              left: AppSpacing.md,
+              bottom: AppSpacing.xs,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'YOUR LABELS',
+                    style: text.labelSmall?.copyWith(
+                      color: tokens.textMuted,
+                      letterSpacing: 1.1,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  key: const Key('sidebar-manage-labels'),
+                  tooltip: 'Manage labels',
+                  onPressed: _openManageLabelsDialog,
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.edit_note_rounded, size: 18),
+                ),
+              ],
             ),
           ),
-          ..._labels.map(
-            (label) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: _SidebarItem(
-                icon: Icons.sell_outlined,
-                label: label,
-                selected: _selectedLabel == label,
-                onTap: () => setState(() {
-                  _section = _NotesSection.all;
-                  _selectedLabel = _selectedLabel == label ? null : label;
-                }),
-              ),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                for (var i = 0; i < _labels.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.xxs),
+                    child: _SidebarItem(
+                      icon: Icons.label_outline_rounded,
+                      dotColor: tokens.noteAccent(i),
+                      label: _labels[i],
+                      selected: _selectedLabel == _labels[i],
+                      onTap: () => setState(() {
+                        _section = _NotesSection.all;
+                        _selectedLabel = _selectedLabel == _labels[i]
+                            ? null
+                            : _labels[i];
+                      }),
+                    ),
+                  ),
+              ],
             ),
           ),
-          const Spacer(),
-          const Divider(color: Color(0xFFECEEEA)),
-          const SizedBox(height: 12),
+          Divider(color: colors.outlineVariant),
+          const SizedBox(height: AppSpacing.sm),
           Row(
             children: [
               CircleAvatar(
                 radius: 17,
-                backgroundColor: const Color(0xFFE5EEE8),
-                child: const Icon(
+                backgroundColor: colors.primaryContainer,
+                child: Icon(
                   Icons.person_outline_rounded,
-                  color: _accentColor,
-                  size: 19,
+                  color: colors.onPrimaryContainer,
+                  size: 18,
                 ),
               ),
-              const SizedBox(width: 10),
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Personal space',
-                    style: TextStyle(
-                      color: _inkColor,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.user?.displayName ??
+                          widget.user?.email ??
+                          'Personal space',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Your notes',
-                    style: TextStyle(color: _mutedColor, fontSize: 11),
-                  ),
-                ],
+                    Text(
+                      widget.user?.email ?? 'Your notes',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodySmall?.copyWith(color: tokens.textMuted),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -403,11 +646,14 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
-  Widget _buildContent({
+  Widget _buildMainContent(
+    BuildContext context, {
     required List<Note> notes,
     required bool isCompact,
     required bool isWide,
   }) {
+    final text = context.text;
+    final tokens = context.tokens;
     final title =
         _selectedLabel ??
         (_section == _NotesSection.pinned ? 'Pinned notes' : 'Your notes');
@@ -417,16 +663,30 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
 
     return Column(
       children: [
-        if (!isWide) _buildCompactBrand(),
+        _buildTopHeader(context, isWide: isWide, isCompact: isCompact),
         Expanded(
           child: ListView(
             padding: EdgeInsets.fromLTRB(
-              isCompact ? 20 : 42,
-              isCompact ? 16 : 40,
-              isCompact ? 20 : 42,
-              32,
+              isCompact ? AppSpacing.lg : AppSpacing.xxl,
+              AppSpacing.md,
+              isCompact ? AppSpacing.lg : AppSpacing.xxl,
+              96,
             ),
             children: [
+              if (widget.user != null && !widget.user!.emailVerified) ...[
+                widget.verificationBanner ?? _buildUnverifiedBanner(context),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              if (widget.authError != null) ...[
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    widget.authError!,
+                    style: text.bodySmall?.copyWith(color: tokens.danger),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -436,35 +696,47 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                       children: [
                         Text(
                           title,
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(fontSize: isCompact ? 28 : 34),
+                          style: text.headlineMedium?.copyWith(
+                            fontSize: isCompact ? 26 : 32,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                        const SizedBox(height: 7),
-                        Text(subtitle),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          subtitle,
+                          style: text.bodyMedium?.copyWith(
+                            color: tokens.textMuted,
+                          ),
+                        ),
                       ],
                     ),
                   ),
                   if (!isCompact) ...[
-                    const SizedBox(width: 24),
-                    _buildDateBadge(),
+                    const SizedBox(width: AppSpacing.lg),
+                    _buildDateBadge(context),
                   ],
                 ],
               ),
-              const SizedBox(height: 28),
-              _buildSearchAndLayout(),
-              const SizedBox(height: 24),
-              _buildSectionHeading(notes.length),
-              const SizedBox(height: 14),
-              if (_labels.isNotEmpty) ...[
-                _buildLabelFilters(),
-                const SizedBox(height: 20),
-              ],
-              if (notes.isEmpty)
-                _buildEmptyState()
+              const SizedBox(height: AppSpacing.xl),
+              _buildSearchAndLayout(context),
+              const SizedBox(height: AppSpacing.lg),
+              _buildSectionHeading(context, notes.length),
+              const SizedBox(height: AppSpacing.md),
+              _buildLabelFilters(context),
+              const SizedBox(height: AppSpacing.lg),
+              if (widget.isLoading)
+                const LoadingStateView(message: 'Loading your notes...')
+              else if (widget.errorMessage != null)
+                ErrorStateView(
+                  message: widget.errorMessage!,
+                  onRetry: widget.onRetry,
+                )
+              else if (notes.isEmpty)
+                _buildEmptyState(isWide: isWide)
               else if (_layout == _NotesLayout.grid)
-                _buildGrid(notes, isCompact)
+                _buildGrid(notes, isCompact: isCompact, isWide: isWide)
               else
-                _buildList(notes),
+                _buildList(notes, isWide: isWide),
             ],
           ),
         ),
@@ -472,42 +744,124 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
-  Widget _buildCompactBrand() {
+  Widget _buildTopHeader(
+    BuildContext context, {
+    required bool isWide,
+    required bool isCompact,
+  }) {
+    final user = widget.user;
+    final text = context.text;
+    final tokens = context.tokens;
+
+    if (!isWide && user == null) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.xs,
+        ),
+        child: Row(
+          children: [
+            const BrandBadge(size: 34),
+            const Spacer(),
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: context.colors.primaryContainer,
+              child: Icon(
+                Icons.person_outline_rounded,
+                color: context.colors.onPrimaryContainer,
+                size: 18,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (user == null) {
+      return const SizedBox(height: AppSpacing.sm);
+    }
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+      padding: EdgeInsets.fromLTRB(
+        isCompact ? AppSpacing.lg : AppSpacing.xxl,
+        AppSpacing.md,
+        isCompact ? AppSpacing.lg : AppSpacing.xxl,
+        AppSpacing.xs,
+      ),
+      child: Wrap(
+        spacing: AppSpacing.md,
+        runSpacing: AppSpacing.xs,
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!isWide) ...[
+                const BrandBadge(size: 32, showText: false),
+                const SizedBox(width: AppSpacing.sm),
+              ],
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Xin chào, ${user.displayName ?? user.email ?? 'bạn'}',
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SelectableText(
+                      'Firebase UID: ${user.uid}',
+                      style: text.bodySmall?.copyWith(color: tokens.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (widget.onLogout != null)
+            OutlinedButton.icon(
+              key: const Key('logout'),
+              onPressed: widget.authBusy ? null : widget.onLogout,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.xs,
+                ),
+              ),
+              icon: const Icon(Icons.logout_rounded, size: 16),
+              label: Text(widget.authBusy ? 'Đang xử lý…' : 'Đăng xuất'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnverifiedBanner(BuildContext context) {
+    final tokens = context.tokens;
+    final text = context.text;
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: tokens.warning.withValues(alpha: 0.12),
+        borderRadius: AppRadius.mdAll,
+        border: Border.all(color: tokens.warning.withValues(alpha: 0.35)),
+      ),
       child: Row(
         children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: _accentColor,
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: const Icon(
-              Icons.auto_awesome_rounded,
-              color: Colors.white,
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 10),
-          const Text(
-            'NoteFlow',
-            style: TextStyle(
-              color: _inkColor,
-              fontSize: 19,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const Spacer(),
-          const CircleAvatar(
-            radius: 16,
-            backgroundColor: Color(0xFFE5EEE8),
-            child: Icon(
-              Icons.person_outline_rounded,
-              color: _accentColor,
-              size: 18,
+          Icon(Icons.mark_email_unread_outlined, color: tokens.warning),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              'Email chưa được xác minh. Vui lòng hoàn tất xác minh email. '
+              'Bạn vẫn có thể sử dụng ứng dụng.',
+              style: text.bodySmall?.copyWith(color: context.colors.onSurface),
             ),
           ),
         ],
@@ -515,7 +869,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
-  Widget _buildDateBadge() {
+  Widget _buildDateBadge(BuildContext context) {
     final now = DateTime.now();
     final weekday = const [
       'Monday',
@@ -542,28 +896,30 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     ][now.month - 1];
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFECEEEA)),
-        borderRadius: BorderRadius.circular(14),
+        color: context.tokens.glassFill,
+        border: Border.all(color: context.tokens.glassBorder),
+        borderRadius: AppRadius.mdAll,
       ),
       child: Text(
         '$weekday, ${now.day} $month',
-        style: const TextStyle(
-          color: _mutedColor,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
+        style: context.text.labelMedium?.copyWith(
+          color: context.tokens.textMuted,
         ),
       ),
     );
   }
 
-  Widget _buildSearchAndLayout() {
+  Widget _buildSearchAndLayout(BuildContext context) {
     return Row(
       children: [
         Expanded(
           child: TextField(
+            key: const Key('notes-search-input'),
             controller: _searchController,
             onChanged: (value) => setState(() => _query = value),
             decoration: InputDecoration(
@@ -582,7 +938,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             ),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: AppSpacing.sm),
         _LayoutToggle(
           layout: _layout,
           onChanged: (layout) => setState(() => _layout = layout),
@@ -591,45 +947,65 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
-  Widget _buildSectionHeading(int count) {
-    return Row(
+  Widget _buildSectionHeading(BuildContext context, int count) {
+    final text = context.text;
+    final colors = context.colors;
+
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.xs,
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        const Text(
-          'All notes',
-          style: TextStyle(
-            color: _inkColor,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(width: 9),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEDEFEB),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            '$count',
-            style: const TextStyle(
-              color: _mutedColor,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'All notes',
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
-          ),
+            const SizedBox(width: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              decoration: BoxDecoration(
+                color: colors.primaryContainer,
+                borderRadius: AppRadius.pillAll,
+              ),
+              child: Text(
+                '$count',
+                style: text.labelSmall?.copyWith(
+                  color: colors.onPrimaryContainer,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
-        const Spacer(),
-        if (_selectedLabel != null)
-          TextButton.icon(
-            onPressed: () => setState(() => _selectedLabel = null),
-            icon: const Icon(Icons.close_rounded, size: 16),
-            label: const Text('Clear filter'),
-          ),
+        Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            if (_selectedLabel != null)
+              TextButton.icon(
+                onPressed: () => setState(() => _selectedLabel = null),
+                icon: const Icon(Icons.close_rounded, size: 16),
+                label: const Text('Clear filter'),
+              ),
+            TextButton.icon(
+              key: const Key('manage-labels-button'),
+              onPressed: _openManageLabelsDialog,
+              icon: const Icon(Icons.label_outline_rounded, size: 16),
+              label: const Text('Manage labels'),
+            ),
+          ],
+        ),
       ],
     );
   }
 
-  Widget _buildLabelFilters() {
+  Widget _buildLabelFilters(BuildContext context) {
+    if (_labels.isEmpty) return const SizedBox.shrink();
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -641,7 +1017,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           ),
           ..._labels.map(
             (label) => Padding(
-              padding: const EdgeInsets.only(left: 8),
+              padding: const EdgeInsets.only(left: AppSpacing.sm),
               child: _LabelFilterChip(
                 label: label,
                 selected: _selectedLabel == label,
@@ -656,12 +1032,16 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
-  Widget _buildGrid(List<Note> notes, bool isCompact) {
+  Widget _buildGrid(
+    List<Note> notes, {
+    required bool isCompact,
+    required bool isWide,
+  }) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 880
+        final columns = constraints.maxWidth >= 860
             ? 3
-            : constraints.maxWidth >= 560
+            : constraints.maxWidth >= 540
             ? 2
             : 1;
 
@@ -671,79 +1051,72 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           itemCount: notes.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
+            mainAxisSpacing: AppSpacing.lg,
+            crossAxisSpacing: AppSpacing.lg,
             mainAxisExtent: isCompact ? 228 : 246,
           ),
-          itemBuilder: (context, index) => _NoteCard(
-            note: notes[index],
-            onTap: () => _showPreview(notes[index]),
-            onTogglePin: () => _togglePin(notes[index]),
-          ),
+          itemBuilder: (context, index) {
+            final note = notes[index];
+            return _NoteCard(
+              note: note,
+              onTap: () => _openEditor(note: note, isWide: isWide),
+              onTogglePin: () => _togglePin(note),
+              onDelete: () => _confirmAndDelete(note),
+            );
+          },
         );
       },
     );
   }
 
-  Widget _buildList(List<Note> notes) {
+  Widget _buildList(List<Note> notes, {required bool isWide}) {
     return Column(
       children: [
         for (final note in notes) ...[
           _NoteListTile(
             note: note,
-            onTap: () => _showPreview(note),
+            onTap: () => _openEditor(note: note, isWide: isWide),
             onTogglePin: () => _togglePin(note),
+            onDelete: () => _confirmAndDelete(note),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSpacing.sm + 2),
         ],
       ],
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState({required bool isWide}) {
     final searching = _query.trim().isNotEmpty || _selectedLabel != null;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 56),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFECEEEA)),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: const BoxDecoration(
-              color: Color(0xFFF0F3EF),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              searching ? Icons.search_off_rounded : Icons.push_pin_outlined,
-              color: _accentColor,
-              size: 26,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            searching ? 'No notes found' : 'Nothing pinned yet',
-            style: const TextStyle(
-              color: _inkColor,
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            searching
-                ? 'Try another search or clear your label filter.'
-                : 'Pin a note to keep it close at hand.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: _mutedColor),
-          ),
-        ],
-      ),
+    if (searching) {
+      return EmptyStateView(
+        icon: Icons.search_off_rounded,
+        title: 'No notes found',
+        message: 'Try another search or clear your label filter.',
+        actionLabel: 'Clear filter',
+        onAction: () {
+          _searchController.clear();
+          setState(() {
+            _query = '';
+            _selectedLabel = null;
+          });
+        },
+      );
+    }
+
+    if (_section == _NotesSection.pinned) {
+      return const EmptyStateView(
+        icon: Icons.push_pin_outlined,
+        title: 'Nothing pinned yet',
+        message: 'Pin a note to keep it close at hand.',
+      );
+    }
+
+    return EmptyStateView(
+      icon: Icons.auto_awesome_outlined,
+      title: 'Your workspace is empty',
+      message: 'Create your first note to capture ideas and thoughts.',
+      actionLabel: 'Create note',
+      onAction: () => _openEditor(isWide: isWide),
     );
   }
 }
@@ -883,37 +1256,64 @@ class _SidebarItem extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.dotColor,
   });
 
   final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final Color? dotColor;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+    final text = context.text;
+    final tokens = context.tokens;
+
     return Material(
-      color: selected ? const Color(0xFFEAF0EB) : Colors.transparent,
-      borderRadius: BorderRadius.circular(11),
+      color: selected
+          ? colors.primaryContainer.withValues(alpha: 0.7)
+          : Colors.transparent,
+      borderRadius: AppRadius.mdAll,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(11),
+        borderRadius: AppRadius.mdAll,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm + 3,
+          ),
           child: Row(
             children: [
-              Icon(
-                icon,
-                size: 19,
-                color: selected ? _accentColor : _mutedColor,
-              ),
-              const SizedBox(width: 11),
-              Text(
-                label,
-                style: TextStyle(
-                  color: selected ? _accentColor : const Color(0xFF59635E),
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              if (dotColor != null)
+                Container(
+                  width: 10,
+                  height: 10,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: dotColor,
+                    shape: BoxShape.circle,
+                  ),
+                )
+              else
+                Icon(
+                  icon,
+                  size: 19,
+                  color: selected ? colors.primary : tokens.textMuted,
+                ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.labelLarge?.copyWith(
+                    color: selected
+                        ? colors.onPrimaryContainer
+                        : colors.onSurfaceVariant,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
                 ),
               ),
             ],
@@ -932,12 +1332,14 @@ class _LayoutToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.tokens;
+
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFE7E9E5)),
-        borderRadius: BorderRadius.circular(13),
+        color: tokens.glassFill,
+        border: Border.all(color: tokens.glassBorder),
+        borderRadius: AppRadius.mdAll,
       ),
       child: Row(
         children: [
@@ -974,16 +1376,21 @@ class _LayoutButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+    final tokens = context.tokens;
+
     return IconButton(
       tooltip: label,
       onPressed: onTap,
       visualDensity: VisualDensity.compact,
       style: IconButton.styleFrom(
         backgroundColor: selected
-            ? const Color(0xFFEAF0EB)
+            ? colors.primaryContainer
             : Colors.transparent,
-        foregroundColor: selected ? _accentColor : _mutedColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+        foregroundColor: selected
+            ? colors.onPrimaryContainer
+            : tokens.textMuted,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.smAll),
       ),
       icon: Icon(icon, size: 19),
     );
@@ -1003,22 +1410,24 @@ class _LabelFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return FilterChip(
+      key: Key('filter-label-chip-$label'),
       label: Text(label),
       selected: selected,
       onSelected: (_) => onTap(),
       showCheckmark: false,
-      backgroundColor: Colors.white,
-      selectedColor: const Color(0xFFEAF0EB),
+      backgroundColor: context.tokens.glassFill,
+      selectedColor: colors.primaryContainer,
       side: BorderSide(
-        color: selected ? const Color(0xFFCAD8CE) : const Color(0xFFE7E9E5),
+        color: selected ? colors.primary : context.tokens.glassBorder,
       ),
-      labelStyle: TextStyle(
-        color: selected ? _accentColor : const Color(0xFF59635E),
-        fontSize: 12,
+      labelStyle: context.text.labelMedium?.copyWith(
+        color: selected ? colors.onPrimaryContainer : colors.onSurfaceVariant,
         fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      shape: RoundedRectangleBorder(borderRadius: AppRadius.smAll),
     );
   }
 }
@@ -1028,105 +1437,139 @@ class _NoteCard extends StatelessWidget {
     required this.note,
     required this.onTap,
     required this.onTogglePin,
+    required this.onDelete,
   });
 
   final Note note;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: _noteColors[note.colorIndex % _noteColors.length],
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 15, 18, 15),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _formatDate(note.updatedAt),
-                      style: const TextStyle(
-                        color: Color(0xFF707972),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+    final tokens = context.tokens;
+    final colors = context.colors;
+    final text = context.text;
+    final accent = tokens.noteAccent(note.colorIndex);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: AppRadius.lgAll,
+        boxShadow: tokens.glow(accent, strength: note.isPinned ? 0.9 : 0.45),
+      ),
+      child: Material(
+        color: colors.surfaceContainer.withValues(alpha: 0.88),
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.lgAll,
+          side: BorderSide(
+            color: accent.withValues(alpha: note.isPinned ? 0.65 : 0.32),
+            width: note.isPinned ? 1.4 : 1,
+          ),
+        ),
+        child: InkWell(
+          key: Key('note-card-${note.id}'),
+          onTap: onTap,
+          borderRadius: AppRadius.lgAll,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 15, 18, 15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: accent,
+                        shape: BoxShape.circle,
                       ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        _formatDate(note.updatedAt),
+                        style: text.labelSmall?.copyWith(
+                          color: tokens.textMuted,
+                        ),
+                      ),
+                    ),
+                    if (note.isPinned)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Icon(
+                          Icons.push_pin_rounded,
+                          size: 16,
+                          color: accent,
+                        ),
+                      ),
+                    PopupMenuButton<String>(
+                      tooltip: 'Note actions',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 140),
+                      iconSize: 19,
+                      icon: Icon(
+                        Icons.more_horiz_rounded,
+                        color: tokens.textMuted,
+                      ),
+                      onSelected: (value) {
+                        if (value == 'pin') onTogglePin();
+                        if (value == 'delete') onDelete();
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'pin',
+                          child: Text(
+                            note.isPinned ? 'Unpin note' : 'Pin note',
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Delete note'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.sm + 2),
+                Text(
+                  note.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.titleLarge?.copyWith(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    note.content,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                      height: 1.55,
                     ),
                   ),
-                  if (note.isPinned)
-                    const Padding(
-                      padding: EdgeInsets.only(right: 3),
-                      child: Icon(
-                        Icons.push_pin_rounded,
-                        size: 16,
-                        color: _accentColor,
-                      ),
-                    ),
-                  PopupMenuButton<String>(
-                    tooltip: 'Note actions',
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 130),
-                    iconSize: 19,
-                    icon: const Icon(
-                      Icons.more_horiz_rounded,
-                      color: Color(0xFF707972),
-                    ),
-                    onSelected: (value) {
-                      if (value == 'pin') onTogglePin();
-                    },
-                    itemBuilder: (context) => [
-                      PopupMenuItem(
-                        value: 'pin',
-                        child: Text(note.isPinned ? 'Unpin note' : 'Pin note'),
-                      ),
-                    ],
+                ),
+                if (note.labels.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: note.labels
+                        .take(3)
+                        .map(
+                          (label) =>
+                              _NoteLabelBadge(label: label, accent: accent),
+                        )
+                        .toList(),
                   ),
                 ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                note.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: _inkColor,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  height: 1.25,
-                  letterSpacing: -0.2,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: Text(
-                  note.content,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF59635E),
-                    fontSize: 12,
-                    height: 1.55,
-                  ),
-                ),
-              ),
-              if (note.labels.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: note.labels
-                      .take(3)
-                      .map(_NoteLabelBadge.new)
-                      .toList(),
-                ),
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -1139,24 +1582,46 @@ class _NoteListTile extends StatelessWidget {
     required this.note,
     required this.onTap,
     required this.onTogglePin,
+    required this.onDelete,
   });
 
   final Note note;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.tokens;
+    final colors = context.colors;
+    final text = context.text;
+    final accent = tokens.noteAccent(note.colorIndex);
+
     return Material(
-      color: _noteColors[note.colorIndex % _noteColors.length],
-      borderRadius: BorderRadius.circular(15),
+      color: colors.surfaceContainer.withValues(alpha: 0.88),
+      shape: RoundedRectangleBorder(
+        borderRadius: AppRadius.mdAll,
+        side: BorderSide(
+          color: accent.withValues(alpha: note.isPinned ? 0.65 : 0.3),
+        ),
+      ),
       child: InkWell(
+        key: Key('note-tile-${note.id}'),
         onTap: onTap,
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: AppRadius.mdAll,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
           child: Row(
             children: [
+              Container(
+                width: 4,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: AppRadius.pillAll,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1168,20 +1633,14 @@ class _NoteListTile extends StatelessWidget {
                             note.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: _inkColor,
+                            style: text.titleMedium?.copyWith(
                               fontWeight: FontWeight.w700,
-                              fontSize: 15,
                             ),
                           ),
                         ),
                         if (note.isPinned) ...[
                           const SizedBox(width: 7),
-                          const Icon(
-                            Icons.push_pin_rounded,
-                            color: _accentColor,
-                            size: 15,
-                          ),
+                          Icon(Icons.push_pin_rounded, color: accent, size: 15),
                         ],
                       ],
                     ),
@@ -1190,9 +1649,8 @@ class _NoteListTile extends StatelessWidget {
                       note.content,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF59635E),
-                        fontSize: 12,
+                      style: text.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
                       ),
                     ),
                     if (note.labels.isNotEmpty) ...[
@@ -1202,7 +1660,10 @@ class _NoteListTile extends StatelessWidget {
                         runSpacing: 6,
                         children: note.labels
                             .take(3)
-                            .map(_NoteLabelBadge.new)
+                            .map(
+                              (label) =>
+                                  _NoteLabelBadge(label: label, accent: accent),
+                            )
                             .toList(),
                       ),
                     ],
@@ -1212,20 +1673,25 @@ class _NoteListTile extends StatelessWidget {
               const SizedBox(width: 12),
               Text(
                 _formatDate(note.updatedAt),
-                style: const TextStyle(color: _mutedColor, fontSize: 11),
+                style: text.labelSmall?.copyWith(color: tokens.textMuted),
               ),
               PopupMenuButton<String>(
                 tooltip: 'Note actions',
                 onSelected: (value) {
                   if (value == 'pin') onTogglePin();
+                  if (value == 'delete') onDelete();
                 },
                 itemBuilder: (context) => [
                   PopupMenuItem(
                     value: 'pin',
                     child: Text(note.isPinned ? 'Unpin note' : 'Pin note'),
                   ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Text('Delete note'),
+                  ),
                 ],
-                icon: const Icon(Icons.more_horiz_rounded, color: _mutedColor),
+                icon: Icon(Icons.more_horiz_rounded, color: tokens.textMuted),
               ),
             ],
           ),
@@ -1236,24 +1702,26 @@ class _NoteListTile extends StatelessWidget {
 }
 
 class _NoteLabelBadge extends StatelessWidget {
-  const _NoteLabelBadge(this.label);
+  const _NoteLabelBadge({required this.label, required this.accent});
 
   final String label;
+  final Color accent;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.62),
+        color: accent.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: accent.withValues(alpha: 0.3)),
       ),
       child: Text(
         label,
-        style: const TextStyle(
-          color: Color(0xFF5B665F),
+        style: context.text.labelSmall?.copyWith(
+          color: accent,
           fontSize: 10,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
