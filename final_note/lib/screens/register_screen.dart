@@ -142,7 +142,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const BrandBadge(size: 52),
+          const BrandBadge(size: 44),
           const SizedBox(height: AppSpacing.xl),
           Text(
             'Make room for\nyour thoughts.',
@@ -154,26 +154,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           const SizedBox(height: AppSpacing.md),
           Text(
-            'Join NoteFlow today. Organize your knowledge, collaborate in real time, and let AI summarize your ideas.',
+            'Join NoteFlow today. Organize your folders, color-code your cards, and keep everything in one calm workspace.',
             style: text.bodyLarge?.copyWith(color: tokens.textMuted),
           ),
           const SizedBox(height: AppSpacing.xxl),
-          _HighlightItem(
+          const _HighlightItem(
             icon: Icons.sync_rounded,
             title: 'Always synchronized',
             description: 'Notes update instantly across all your devices.',
           ),
           const SizedBox(height: AppSpacing.md),
-          _HighlightItem(
+          const _HighlightItem(
             icon: Icons.shield_outlined,
             title: 'Privacy focused',
-            description: 'Individual password locks for your private journals.',
+            description: 'Account-isolated workspace for your personal notes.',
           ),
           const SizedBox(height: AppSpacing.md),
-          _HighlightItem(
-            icon: Icons.palette_outlined,
-            title: 'Beautiful experience',
-            description: 'Midnight Glow theme designed for focus and clarity.',
+          const _HighlightItem(
+            icon: Icons.dashboard_customize_outlined,
+            title: 'Clean formal layout',
+            description: 'Editorial typography and soft pastel note cards.',
           ),
         ],
       ),
@@ -186,7 +186,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final colors = context.colors;
 
     return GlassPanel(
-      glowColor: colors.secondary,
       padding: const EdgeInsets.all(AppSpacing.xxl),
       child: Form(
         key: _formKey,

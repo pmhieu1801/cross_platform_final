@@ -122,10 +122,10 @@ class _LoginScreenState extends State<LoginScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const BrandBadge(size: 52),
+          const BrandBadge(size: 44),
           const SizedBox(height: AppSpacing.xl),
           Text(
-            'Capture thoughts.\nIlluminate ideas.',
+            'Organized notes.\nClear thinking.',
             style: text.displaySmall?.copyWith(
               fontFamily: AppTypography.display,
               fontWeight: FontWeight.w800,
@@ -134,28 +134,28 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: AppSpacing.md),
           Text(
-            'A modern, beautiful, and secure workspace for all your notes, ideas, and real-time collaboration.',
+            'A clean, structured workspace for your daily notes, folders, and personal knowledge.',
             style: text.bodyLarge?.copyWith(color: tokens.textMuted),
           ),
           const SizedBox(height: AppSpacing.xxl),
-          _HeroFeatureItem(
-            icon: Icons.bolt_rounded,
+          const _HeroFeatureItem(
+            icon: Icons.folder_copy_outlined,
+            title: 'Structured Folders & Labels',
+            subtitle: 'Group lecture notes, book lists, and tasks by color-coded labels.',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          const _HeroFeatureItem(
+            icon: Icons.sync_rounded,
             title: 'Real-time & Offline Ready',
             subtitle:
-                'Access and edit seamlessly everywhere, even without internet.',
+                'Access and edit seamlessly everywhere, with automatic saving.',
           ),
           const SizedBox(height: AppSpacing.md),
-          _HeroFeatureItem(
-            icon: Icons.auto_awesome_rounded,
-            title: 'AI Smart Summary',
-            subtitle:
-                'Condense long thoughts and ask questions with source notes.',
-          ),
-          const SizedBox(height: AppSpacing.md),
-          _HeroFeatureItem(
+          const _HeroFeatureItem(
             icon: Icons.lock_outline_rounded,
-            title: 'Protected & Private',
-            subtitle: 'End-to-end password locks on your most sensitive notes.',
+            title: 'Account-Scoped Privacy',
+            subtitle:
+                'Strictly isolated workspace tied to your verified account.',
           ),
         ],
       ),
@@ -168,7 +168,6 @@ class _LoginScreenState extends State<LoginScreen> {
     final colors = context.colors;
 
     return GlassPanel(
-      glowColor: colors.primary,
       padding: const EdgeInsets.all(AppSpacing.xxl),
       child: Form(
         key: _formKey,

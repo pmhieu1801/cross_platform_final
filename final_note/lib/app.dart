@@ -5,7 +5,7 @@ import 'routing/app_router.dart';
 import 'theme/theme.dart';
 
 class NoteFlowApp extends ConsumerWidget {
-  const NoteFlowApp({super.key, this.themeMode = ThemeMode.dark});
+  const NoteFlowApp({super.key, this.themeMode = ThemeMode.light});
 
   final ThemeMode themeMode;
 

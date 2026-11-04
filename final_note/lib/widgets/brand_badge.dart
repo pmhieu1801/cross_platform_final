@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../theme/theme.dart';
 
-/// NoteFlow logo mark with a soft gradient and icon.
+/// Formal NoteFlow brand mark inspired by the MINO workspace header:
+/// two clean overlapping geometric circles in solid navy and charcoal typography.
 class BrandBadge extends StatelessWidget {
   const BrandBadge({
     super.key,
-    this.size = 44,
+    this.size = 36,
     this.showText = true,
     this.textStyle,
   });
@@ -17,29 +18,43 @@ class BrandBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.tokens;
     final text = context.text;
     final colors = context.colors;
+    final circleSize = size * 0.62;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
+        SizedBox(
           width: size,
-          height: size,
-          decoration: BoxDecoration(
-            gradient: tokens.brandGradient,
-            borderRadius: BorderRadius.circular(size * 0.32),
-            boxShadow: tokens.glow(colors.primary, strength: 0.8),
-          ),
-          child: Icon(
-            Icons.auto_awesome_rounded,
-            color: Colors.white,
-            size: size * 0.52,
+          height: circleSize,
+          child: Stack(
+            alignment: Alignment.centerLeft,
+            children: [
+              Container(
+                width: circleSize,
+                height: circleSize,
+                decoration: BoxDecoration(
+                  color: colors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              Positioned(
+                left: size - circleSize,
+                child: Container(
+                  width: circleSize,
+                  height: circleSize,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: colors.primary, width: 2.2),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         if (showText) ...[
-          const SizedBox(width: AppSpacing.md),
+          const SizedBox(width: AppSpacing.sm + 2),
           Text(
             'NoteFlow',
             style:
@@ -47,7 +62,8 @@ class BrandBadge extends StatelessWidget {
                 text.titleLarge?.copyWith(
                   fontFamily: AppTypography.display,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: -0.6,
+                  letterSpacing: 1.4,
+                  color: colors.onSurface,
                 ),
           ),
         ],
