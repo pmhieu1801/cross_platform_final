@@ -143,7 +143,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final titleField = find.byWidgetPredicate(
-      (widget) => widget is TextField && widget.decoration?.labelText == 'Title',
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == 'Title',
     );
     final contentField = find.byWidgetPredicate(
       (widget) =>

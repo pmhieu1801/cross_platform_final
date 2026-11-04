@@ -209,26 +209,41 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     _scheduleAutosave();
   }
 
-  void _addCustomLabel() {
-    final trimmed = _newLabelController.text.trim();
-    if (trimmed.isEmpty) return;
-    final existingMatch = _catalogLabels.cast<String?>().firstWhere(
-      (item) => item!.toLowerCase() == trimmed.toLowerCase(),
-      orElse: () => null,
-    );
-    final resolved = existingMatch ?? trimmed;
+  void _commitPendingLabelInput({bool scheduleSave = true}) {
+    final raw = _newLabelController.text.trim();
+    if (raw.isEmpty) return;
+    final parts = raw
+        .split(',')
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return;
+
     setState(() {
-      if (!_catalogLabels.contains(resolved)) {
-        _catalogLabels = [..._catalogLabels, resolved]
-          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-      }
-      if (!_labels.contains(resolved)) {
-        _labels.add(resolved);
+      for (final part in parts) {
+        final existingMatch = _catalogLabels.cast<String?>().firstWhere(
+          (item) => item!.toLowerCase() == part.toLowerCase(),
+          orElse: () => null,
+        );
+        final resolved = existingMatch ?? part;
+        if (!_catalogLabels.contains(resolved)) {
+          _catalogLabels = [..._catalogLabels, resolved]
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+        }
+        if (!_labels.contains(resolved)) {
+          _labels.add(resolved);
+        }
       }
       _newLabelController.clear();
     });
     _dirty = true;
-    _scheduleAutosave();
+    if (scheduleSave) {
+      _scheduleAutosave();
+    }
+  }
+
+  void _addCustomLabel() {
+    _commitPendingLabelInput(scheduleSave: true);
   }
 
   void _scheduleAutosave() {
@@ -250,6 +265,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
 
   void _flushPendingSave() {
     _debounceTimer?.cancel();
+    if (_newLabelController.text.trim().isNotEmpty) {
+      _commitPendingLabelInput(scheduleSave: false);
+    }
     if (_dirty && (_hasMeaningfulContent || _hasEverSaved)) {
       unawaited(_persistNow(isAutosave: true));
     }
@@ -257,6 +275,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
 
   Future<bool> _persistNow({required bool isAutosave}) async {
     _debounceTimer?.cancel();
+    if (_newLabelController.text.trim().isNotEmpty) {
+      _commitPendingLabelInput(scheduleSave: false);
+    }
     if (!_hasMeaningfulContent && !_hasEverSaved) {
       return true;
     }
@@ -301,6 +322,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
 
   Future<void> _handleClose() async {
     _debounceTimer?.cancel();
+    if (_newLabelController.text.trim().isNotEmpty) {
+      _commitPendingLabelInput(scheduleSave: false);
+    }
     if (_dirty && (_hasMeaningfulContent || _hasEverSaved)) {
       await _persistNow(isAutosave: false);
     }
@@ -337,9 +361,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     final colors = context.colors;
     final text = context.text;
     final accent = tokens.noteAccent(_colorIndex);
+    final isEditing = widget.initialNote != null;
 
     return GlassPanel(
-      glowColor: accent,
       padding: const EdgeInsets.all(AppSpacing.xl),
       borderRadius: widget.embedded
           ? AppRadius.xlAll
@@ -375,7 +399,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 },
                 icon: Icon(
                   _isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
-                  color: _isPinned ? accent : null,
+                  color: _isPinned ? colors.primary : null,
                 ),
               ),
               if ((_hasEverSaved || widget.initialNote != null) &&
@@ -398,6 +422,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               fontWeight: FontWeight.w700,
             ),
             decoration: const InputDecoration(
+              labelText: 'Title',
+              floatingLabelBehavior: FloatingLabelBehavior.never,
               hintText: 'Note title...',
               border: InputBorder.none,
               enabledBorder: InputBorder.none,
@@ -406,7 +432,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               contentPadding: EdgeInsets.symmetric(horizontal: AppSpacing.xs),
             ),
           ),
-          Divider(color: accent.withValues(alpha: 0.35), height: 20),
+          Divider(color: colors.outlineVariant, height: 20),
           Flexible(
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 140, maxHeight: 300),
@@ -418,6 +444,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 keyboardType: TextInputType.multiline,
                 style: text.bodyLarge,
                 decoration: const InputDecoration(
+                  labelText: 'Content',
+                  floatingLabelBehavior: FloatingLabelBehavior.never,
                   hintText: 'Start writing your thoughts...',
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
@@ -435,6 +463,20 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
           _buildLabelsSection(context, accent),
           const SizedBox(height: AppSpacing.md),
           _buildColorPicker(context, accent),
+          const SizedBox(height: AppSpacing.lg),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(onPressed: _handleClose, child: const Text('Done')),
+              const SizedBox(width: AppSpacing.sm),
+              FilledButton.icon(
+                key: const Key('note-editor-save-button'),
+                onPressed: _handleClose,
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: Text(isEditing ? 'Save changes' : 'Create note'),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -474,10 +516,14 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 label: Text(label),
                 selected: selected,
                 onSelected: (_) => _toggleLabel(label),
-                selectedColor: accent.withValues(alpha: 0.22),
-                side: BorderSide(color: selected ? accent : tokens.glassBorder),
+                selectedColor: colors.primaryContainer,
+                side: BorderSide(
+                  color: selected ? colors.primary : tokens.glassBorder,
+                ),
                 labelStyle: text.labelSmall?.copyWith(
-                  color: selected ? colors.onSurface : tokens.textMuted,
+                  color: selected
+                      ? colors.onPrimaryContainer
+                      : tokens.textMuted,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 ),
               );
@@ -495,6 +541,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 onSubmitted: (_) => _addCustomLabel(),
                 style: text.bodySmall,
                 decoration: const InputDecoration(
+                  labelText: 'Labels (comma separated)',
+                  floatingLabelBehavior: FloatingLabelBehavior.never,
                   hintText: 'Attach a label...',
                   isDense: true,
                   contentPadding: EdgeInsets.symmetric(
@@ -590,6 +638,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   Widget _buildColorPicker(BuildContext context, Color activeAccent) {
     final tokens = context.tokens;
     final text = context.text;
+    final colors = context.colors;
 
     return Row(
       children: [
@@ -603,7 +652,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.xs,
             children: List<Widget>.generate(tokens.noteAccents.length, (index) {
-              final color = tokens.noteAccents[index];
+              final pastelFill = tokens.noteCardFill(index);
               final selected = _colorIndex % tokens.noteAccents.length == index;
               final name = index < AppColors.noteAccentNames.length
                   ? AppColors.noteAccentNames[index]
@@ -622,24 +671,21 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                   },
                   child: AnimatedContainer(
                     duration: AppDurations.fast,
-                    width: 26,
-                    height: 26,
+                    width: 28,
+                    height: 28,
                     decoration: BoxDecoration(
-                      color: color,
+                      color: pastelFill,
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: selected ? Colors.white : Colors.transparent,
-                        width: 2.2,
+                        color: selected ? colors.onSurface : colors.outline,
+                        width: selected ? 2.2 : 1,
                       ),
-                      boxShadow: selected
-                          ? tokens.glow(color, strength: 1.2)
-                          : null,
                     ),
                     child: selected
-                        ? const Icon(
+                        ? Icon(
                             Icons.check_rounded,
-                            size: 14,
-                            color: Colors.white,
+                            size: 15,
+                            color: AppColors.charcoal,
                           )
                         : null,
                   ),
