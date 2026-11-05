@@ -9,6 +9,7 @@ import 'package:final_note/theme/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_auth_repository.dart';
 
@@ -17,6 +18,9 @@ Widget _wrapWithTheme(Widget child) {
 }
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
   group('NoteRepository & UID isolation (R11, R12, R13, R17)', () {
     test(
       'isolates notes strictly per UID and cancels old account streams',
@@ -253,5 +257,74 @@ void main() {
 
       expect(find.text('Delete Me'), findsNothing);
     });
+
+    testWidgets(
+      'desktop side-by-side editor saves new notes and edits without remounting mid-typing',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1440, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final existing = Note(
+          id: 'note-existing',
+          title: 'Initial Homework',
+          content: 'Chapter 1 exercises',
+          labels: const ['Study'],
+          colorIndex: 3,
+          updatedAt: DateTime(2026, 4, 15, 10),
+        );
+
+        await tester.pumpWidget(
+          _wrapWithTheme(
+            NotesHomeScreen(
+              initialNotes: [existing],
+              editorDebounceDuration: const Duration(milliseconds: 200),
+            ),
+          ),
+        );
+
+        // 1. Create a new note on wide desktop and continue typing after first autosave.
+        await tester.tap(find.byKey(const Key('sidebar-create-note')));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('note-title-input')),
+          'Draft Title',
+        );
+        await tester.pump(const Duration(milliseconds: 250));
+
+        // Continue typing after autosave fired; editor must not remount or lose text.
+        await tester.enterText(
+          find.byKey(const Key('note-title-input')),
+          'Final Saved Title',
+        );
+        await tester.enterText(
+          find.byKey(const Key('note-content-input')),
+          'Final Saved Content Body',
+        );
+        await tester.tap(find.byKey(const Key('note-editor-save-button')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Final Saved Title'), findsOneWidget);
+        expect(find.text('Final Saved Content Body'), findsOneWidget);
+
+        // 2. Edit the existing note and click Save changes.
+        await tester.tap(find.byKey(const Key('note-card-note-existing')));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('note-title-input')),
+          'Updated Homework Title',
+        );
+        await tester.enterText(
+          find.byKey(const Key('note-content-input')),
+          'Completed all chapters',
+        );
+        await tester.tap(find.byKey(const Key('note-editor-save-button')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Updated Homework Title'), findsOneWidget);
+        expect(find.text('Completed all chapters'), findsOneWidget);
+      },
+    );
   });
 }

@@ -13,6 +13,8 @@ class GlassPanel extends StatelessWidget {
     this.blur = false,
     this.glowColor,
     this.elevated = true,
+    this.color,
+    this.borderColor,
   });
 
   final Widget child;
@@ -21,6 +23,8 @@ class GlassPanel extends StatelessWidget {
   final bool blur;
   final Color? glowColor;
   final bool elevated;
+  final Color? color;
+  final Color? borderColor;
 
   @override
   Widget build(BuildContext context) {
@@ -29,9 +33,9 @@ class GlassPanel extends StatelessWidget {
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: tokens.glassFill,
+        color: color ?? tokens.glassFill,
         borderRadius: borderRadius,
-        border: Border.all(color: tokens.glassBorder),
+        border: Border.all(color: borderColor ?? tokens.glassBorder),
         boxShadow: elevated ? tokens.elevation : null,
       ),
       child: child,

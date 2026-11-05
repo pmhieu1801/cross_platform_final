@@ -8,7 +8,7 @@ import '../data/in_memory_note_repository.dart';
 import '../domain/note_repository.dart';
 
 final noteRepositoryProvider = Provider<NoteRepository>((ref) {
-  final repository = InMemoryNoteRepository();
+  final repository = InMemoryNoteRepository(persistToLocalStorage: true);
   ref.onDispose(repository.dispose);
   return repository;
 });

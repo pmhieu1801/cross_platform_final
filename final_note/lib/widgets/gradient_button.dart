@@ -37,13 +37,11 @@ class _GradientButtonState extends State<GradientButton> {
     final highlighted = _enabled && (_hovered || _focused);
 
     final foreground = _enabled || widget.loading
-        ? colors.onPrimary
+        ? Colors.white
         : colors.onSurface.withValues(alpha: 0.38);
 
     final backgroundColor = _enabled || widget.loading
-        ? (highlighted
-              ? Color.lerp(colors.primary, Colors.black, 0.12)!
-              : colors.primary)
+        ? (highlighted ? const Color(0xFF262A30) : AppColors.charcoal)
         : colors.onSurface.withValues(alpha: 0.08);
 
     return Semantics(
@@ -59,15 +57,15 @@ class _GradientButtonState extends State<GradientButton> {
           height: widget.height,
           decoration: BoxDecoration(
             color: backgroundColor,
-            borderRadius: AppRadius.mdAll,
+            borderRadius: AppRadius.pillAll,
             border: _focused
-                ? Border.all(color: colors.onSurface, width: 2)
+                ? Border.all(color: AppColors.brandRed, width: 2)
                 : null,
           ),
           child: Material(
             type: MaterialType.transparency,
             child: InkWell(
-              borderRadius: AppRadius.mdAll,
+              borderRadius: AppRadius.pillAll,
               onTap: _enabled ? widget.onPressed : null,
               onHover: (value) => setState(() => _hovered = value),
               onFocusChange: (value) => setState(() => _focused = value),

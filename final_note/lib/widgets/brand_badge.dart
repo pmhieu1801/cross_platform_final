@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../theme/theme.dart';
 
-/// Formal NoteFlow brand mark inspired by the MINO workspace header:
-/// two clean overlapping geometric circles in solid navy and charcoal typography.
+/// Formal NoteFlow brand mark with a dominant Red & White color palette:
+/// two overlapping geometric circles in crimson red and crisp white.
 class BrandBadge extends StatelessWidget {
   const BrandBadge({
     super.key,
@@ -20,7 +20,7 @@ class BrandBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = context.text;
     final colors = context.colors;
-    final circleSize = size * 0.62;
+    final circleSize = size * 0.64;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -34,9 +34,18 @@ class BrandBadge extends StatelessWidget {
               Container(
                 width: circleSize,
                 height: circleSize,
-                decoration: BoxDecoration(
-                  color: colors.primary,
+                decoration: const BoxDecoration(
+                  color: AppColors.brandRed,
                   shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Container(
+                  width: circleSize * 0.34,
+                  height: circleSize * 0.34,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
                 ),
               ),
               Positioned(
@@ -45,8 +54,9 @@ class BrandBadge extends StatelessWidget {
                   width: circleSize,
                   height: circleSize,
                   decoration: BoxDecoration(
+                    color: Colors.white,
                     shape: BoxShape.circle,
-                    border: Border.all(color: colors.primary, width: 2.2),
+                    border: Border.all(color: AppColors.brandRed, width: 2.5),
                   ),
                 ),
               ),

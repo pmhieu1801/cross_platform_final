@@ -83,6 +83,8 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   /// Currently open note in the desktop side-by-side editor (`null` if closed).
   Note? _activeEditorNote;
   bool _isCreatingNew = false;
+  int _editorSessionCounter = 0;
+  String _editorSessionKey = 'editor-session-0';
 
   @override
   void initState() {
@@ -322,6 +324,9 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   void _openEditor({Note? note, required bool isWide}) {
     if (isWide) {
       setState(() {
+        _editorSessionCounter++;
+        _editorSessionKey =
+            'editor-session-$_editorSessionCounter-${note?.id ?? 'new'}';
         _activeEditorNote = note;
         _isCreatingNew = note == null;
       });
@@ -400,9 +405,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                         ),
                         child: SingleChildScrollView(
                           child: NoteEditorPanel(
-                            key: ValueKey(
-                              _activeEditorNote?.id ?? 'new-note-panel',
-                            ),
+                            key: ValueKey(_editorSessionKey),
                             initialNote: _activeEditorNote,
                             availableLabels: _labels,
                             embedded: true,
@@ -502,9 +505,9 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             child: Row(
               children: [
                 for (final dot in const [
-                  Color(0xFFEBE886),
-                  Color(0xFF4599D1),
-                  Color(0xFFD93838),
+                  Color(0xFFD4EDC9),
+                  Color(0xFFCCCBE6),
+                  AppColors.brandRed,
                 ])
                   Container(
                     width: 11,

@@ -7,20 +7,24 @@ import 'package:flutter/material.dart';
 /// [NoteFlowTokens] theme extension so that light and dark modes stay consistent.
 abstract final class AppColors {
   // ---------------------------------------------------------------------------
-  // Brand (Formal solid tones — no neon purple gradients)
+  // Brand (Formal solid tones — black CTA, red & white brand mark)
   // ---------------------------------------------------------------------------
-  /// Formal deep navy blue (primary action & brand mark).
-  static const violet = Color(0xFF1B3A6B);
-  static const indigo = Color(0xFF2B528C);
+  /// Formal solid black-charcoal used for primary CTA buttons.
+  static const violet = Color(0xFF141619);
+  static const indigo = Color(0xFF24292F);
   static const mint = Color(0xFF1F7A5A);
 
   /// Deep tones used on light backgrounds for high WCAG contrast.
-  static const violetDeep = Color(0xFF1B3A6B);
-  static const indigoDeep = Color(0xFF24477A);
+  static const violetDeep = Color(0xFF141619);
+  static const indigoDeep = Color(0xFF24292F);
   static const mintDeep = Color(0xFF186B4E);
 
-  /// Formal charcoal ink used for badges and strong headings.
-  static const charcoal = Color(0xFF111827);
+  /// Dominant red accent for the NoteFlow brand mark (Red & White logo).
+  static const brandRed = Color(0xFFE04F4F);
+  static const brandRedDeep = Color(0xFFD63B3B);
+
+  /// Formal charcoal ink used for buttons, badges, and strong headings.
+  static const charcoal = Color(0xFF141619);
 
   // ---------------------------------------------------------------------------
   // Light surfaces (default formal workspace)
@@ -58,57 +62,58 @@ abstract final class AppColors {
   static const warningDeep = Color(0xFFB45309);
 
   // ---------------------------------------------------------------------------
-  // MINO Pastel Note Card fills (indexed by `Note.colorIndex`)
-  // Matches the soft yellow, coral rose, sky blue, ice blue, blush & cream cards.
+  // Pastel Note Card fills (indexed by `Note.colorIndex`)
+  // Matches the "Notes / Memo Writing" pastel palette:
+  // Mint Green, Periwinkle Lavender, Rose Pink, Butter Cream, Aqua Teal, Mauve.
   // ---------------------------------------------------------------------------
   static const noteCardPastels = <Color>[
-    Color(0xFFEBE886), // Warm yellow (Mid test exam)
-    Color(0xFFF1ACAC), // Soft coral rose (Mid test exam)
-    Color(0xFF77BFE6), // Sky blue (Jonas's notes)
-    Color(0xFFDDEEFF), // Pale ice blue (Movie Review)
-    Color(0xFFFAD8D6), // Pale blush pink (Class Notes)
-    Color(0xFFFBF9DF), // Soft buttercream (Book Lists)
-    Color(0xFFD9F0E3), // Soft sage mint
-    Color(0xFFEAECEF), // Warm neutral stone
+    Color(0xFFD4EDC9), // 0: Soft Mint Green (Today's Tasks)
+    Color(0xFFCCCBE6), // 1: Soft Periwinkle Lavender (Shopping List)
+    Color(0xFFF6C2D4), // 2: Soft Rose Pink (Trend Lists)
+    Color(0xFFFAF5C8), // 3: Soft Butter Cream (Homework)
+    Color(0xFFB8E3E9), // 4: Soft Aqua Teal (Social Posts)
+    Color(0xFFE8C5DF), // 5: Soft Mauve Orchid (Workout)
+    Color(0xFFFAD9C8), // 6: Soft Peach Apricot
+    Color(0xFFCFE2F8), // 7: Soft Ice Blue
   ];
 
-  /// Deeper companion accents for dots, icons, and dark-mode indicators.
+  /// Deeper companion accents for dots, icons, and indicators.
   static const noteAccents = <Color>[
-    Color(0xFF9E991A), // Warm olive-gold
-    Color(0xFFC85A5A), // Coral red
-    Color(0xFF2B7CB3), // Cerulean blue
-    Color(0xFF6E7BF2), // Periwinkle folder icon
-    Color(0xFFB36B43), // Terracotta folder icon
-    Color(0xFFC9C24B), // Citrine folder icon
-    Color(0xFF2E8B63), // Forest sage
-    Color(0xFF64748B), // Slate
+    Color(0xFF3E8E53), // Mint Green accent
+    Color(0xFF6B67B2), // Periwinkle Lavender accent
+    Color(0xFFC95B82), // Rose Pink accent
+    Color(0xFFB59F26), // Butter Cream Gold accent
+    Color(0xFF348D9B), // Aqua Teal accent
+    Color(0xFF9E588C), // Mauve Orchid accent
+    Color(0xFFC9734C), // Peach Apricot accent
+    Color(0xFF4A7BB8), // Ice Blue accent
   ];
 
   /// Folder card soft fills for the "Recent Folders" / Labels showcase.
   static const folderPastels = <Color>[
-    Color(0xFFDDEEFF), // Soft blue folder card
-    Color(0xFFFAD8D6), // Soft pink folder card
-    Color(0xFFFBF9DF), // Soft yellow folder card
-    Color(0xFFD9F0E3), // Soft mint folder card
+    Color(0xFFD4EDC9), // Soft Mint folder card
+    Color(0xFFCCCBE6), // Soft Lavender folder card
+    Color(0xFFF6C2D4), // Soft Rose folder card
+    Color(0xFFFAF5C8), // Soft Butter Cream folder card
   ];
 
-  /// Folder icon colors matching the MINO reference.
+  /// Folder icon colors matching the pastel note palette.
   static const folderIconColors = <Color>[
-    Color(0xFF7B83EB), // Periwinkle blue icon
-    Color(0xFFB66E41), // Warm brown/terracotta icon
-    Color(0xFFDED966), // Warm yellow icon
-    Color(0xFF4A9B76), // Sage green icon
+    Color(0xFF3E8E53), // Mint green icon
+    Color(0xFF6B67B2), // Periwinkle lavender icon
+    Color(0xFFC95B82), // Rose pink icon
+    Color(0xFFB59F26), // Warm butter gold icon
   ];
 
   /// Human readable names for [noteAccents] (used for tooltips / semantics).
   static const noteAccentNames = <String>[
-    'Warm Yellow',
-    'Coral Rose',
-    'Sky Blue',
+    'Mint Green',
+    'Soft Lavender',
+    'Rose Pink',
+    'Butter Cream',
+    'Aqua Teal',
+    'Mauve Orchid',
+    'Soft Peach',
     'Ice Blue',
-    'Blush Peach',
-    'Soft Cream',
-    'Sage Mint',
-    'Slate',
   ];
 }

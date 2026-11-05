@@ -299,9 +299,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
         }
         return false;
       }
-      _dirty = false;
       _hasEverSaved = true;
       _lastSavedSnapshot = saved;
+      _dirty = _differsFromLastSaved();
       if (mounted) {
         setState(() {
           _phase = NoteAutosavePhase.saved;
@@ -320,12 +320,30 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     }
   }
 
+  Future<void> _handleSaveAndClose() async {
+    _debounceTimer?.cancel();
+    if (_newLabelController.text.trim().isNotEmpty) {
+      _commitPendingLabelInput(scheduleSave: false);
+    }
+    if (_hasMeaningfulContent || _hasEverSaved) {
+      final ok = await _persistNow(isAutosave: false);
+      if (!ok || !mounted) return;
+    }
+    if (!mounted) return;
+    if (widget.onClose != null) {
+      widget.onClose!();
+    } else {
+      Navigator.of(context).maybePop();
+    }
+  }
+
   Future<void> _handleClose() async {
     _debounceTimer?.cancel();
     if (_newLabelController.text.trim().isNotEmpty) {
       _commitPendingLabelInput(scheduleSave: false);
     }
-    if (_dirty && (_hasMeaningfulContent || _hasEverSaved)) {
+    if ((_dirty || _differsFromLastSaved()) &&
+        (_hasMeaningfulContent || _hasEverSaved)) {
       await _persistNow(isAutosave: false);
     }
     if (!mounted) return;
@@ -361,10 +379,15 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     final colors = context.colors;
     final text = context.text;
     final accent = tokens.noteAccent(_colorIndex);
-    final isEditing = widget.initialNote != null;
+    final pastelFill = tokens.noteCardFill(_colorIndex);
+    final isEditing = widget.initialNote != null || _hasEverSaved;
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.65);
 
     return GlassPanel(
       padding: const EdgeInsets.all(AppSpacing.xl),
+      color: pastelFill,
+      borderColor: inkColor.withValues(alpha: 0.12),
       borderRadius: widget.embedded
           ? AppRadius.xlAll
           : const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
@@ -382,6 +405,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                   widget.embedded
                       ? Icons.close_rounded
                       : Icons.arrow_back_rounded,
+                  color: inkColor,
                 ),
               ),
               const SizedBox(width: AppSpacing.xs),
@@ -399,7 +423,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 },
                 icon: Icon(
                   _isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
-                  color: _isPinned ? colors.primary : null,
+                  color: _isPinned ? inkColor : subInkColor,
                 ),
               ),
               if ((_hasEverSaved || widget.initialNote != null) &&
@@ -420,19 +444,27 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             style: text.headlineSmall?.copyWith(
               fontFamily: AppTypography.display,
               fontWeight: FontWeight.w700,
+              color: inkColor,
             ),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Title',
               floatingLabelBehavior: FloatingLabelBehavior.never,
               hintText: 'Note title...',
+              hintStyle: text.headlineSmall?.copyWith(
+                fontFamily: AppTypography.display,
+                fontWeight: FontWeight.w600,
+                color: subInkColor,
+              ),
               border: InputBorder.none,
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
               filled: false,
-              contentPadding: EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xs,
+              ),
             ),
           ),
-          Divider(color: colors.outlineVariant, height: 20),
+          Divider(color: inkColor.withValues(alpha: 0.12), height: 20),
           Flexible(
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 140, maxHeight: 300),
@@ -442,16 +474,17 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 maxLines: null,
                 minLines: 5,
                 keyboardType: TextInputType.multiline,
-                style: text.bodyLarge,
-                decoration: const InputDecoration(
+                style: text.bodyLarge?.copyWith(color: inkColor, height: 1.55),
+                decoration: InputDecoration(
                   labelText: 'Content',
                   floatingLabelBehavior: FloatingLabelBehavior.never,
                   hintText: 'Start writing your thoughts...',
+                  hintStyle: text.bodyLarge?.copyWith(color: subInkColor),
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
                   filled: false,
-                  contentPadding: EdgeInsets.symmetric(
+                  contentPadding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.xs,
                     vertical: AppSpacing.sm,
                   ),
@@ -467,11 +500,19 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(onPressed: _handleClose, child: const Text('Done')),
+              TextButton(
+                onPressed: _handleClose,
+                style: TextButton.styleFrom(foregroundColor: inkColor),
+                child: const Text('Done'),
+              ),
               const SizedBox(width: AppSpacing.sm),
               FilledButton.icon(
                 key: const Key('note-editor-save-button'),
-                onPressed: _handleClose,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.charcoal,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: _handleSaveAndClose,
                 icon: const Icon(Icons.check_rounded, size: 18),
                 label: Text(isEditing ? 'Save changes' : 'Create note'),
               ),
@@ -483,24 +524,23 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   }
 
   Widget _buildLabelsSection(BuildContext context, Color accent) {
-    final tokens = context.tokens;
-    final colors = context.colors;
     final text = context.text;
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.65);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
-            Icon(
-              Icons.label_outline_rounded,
-              size: 16,
-              color: tokens.textMuted,
-            ),
+            Icon(Icons.label_outline_rounded, size: 16, color: subInkColor),
             const SizedBox(width: AppSpacing.xs),
             Text(
               'Labels',
-              style: text.labelSmall?.copyWith(color: tokens.textMuted),
+              style: text.labelSmall?.copyWith(
+                color: subInkColor,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -516,14 +556,13 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 label: Text(label),
                 selected: selected,
                 onSelected: (_) => _toggleLabel(label),
-                selectedColor: colors.primaryContainer,
+                backgroundColor: Colors.white.withValues(alpha: 0.65),
+                selectedColor: inkColor,
                 side: BorderSide(
-                  color: selected ? colors.primary : tokens.glassBorder,
+                  color: selected ? inkColor : inkColor.withValues(alpha: 0.18),
                 ),
                 labelStyle: text.labelSmall?.copyWith(
-                  color: selected
-                      ? colors.onPrimaryContainer
-                      : tokens.textMuted,
+                  color: selected ? Colors.white : inkColor,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 ),
               );
@@ -539,15 +578,34 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 controller: _newLabelController,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _addCustomLabel(),
-                style: text.bodySmall,
-                decoration: const InputDecoration(
+                style: text.bodySmall?.copyWith(color: inkColor),
+                decoration: InputDecoration(
                   labelText: 'Labels (comma separated)',
                   floatingLabelBehavior: FloatingLabelBehavior.never,
                   hintText: 'Attach a label...',
+                  hintStyle: text.bodySmall?.copyWith(color: subInkColor),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.72),
                   isDense: true,
-                  contentPadding: EdgeInsets.symmetric(
+                  contentPadding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.sm,
                     vertical: AppSpacing.sm,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: AppRadius.smAll,
+                    borderSide: BorderSide(
+                      color: inkColor.withValues(alpha: 0.16),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: AppRadius.smAll,
+                    borderSide: BorderSide(
+                      color: inkColor.withValues(alpha: 0.16),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: AppRadius.smAll,
+                    borderSide: const BorderSide(color: inkColor, width: 1.4),
                   ),
                 ),
               ),
@@ -557,7 +615,11 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               key: const Key('editor-add-label-button'),
               tooltip: 'Attach label',
               onPressed: _addCustomLabel,
-              icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
+              icon: const Icon(
+                Icons.add_circle_outline_rounded,
+                size: 20,
+                color: inkColor,
+              ),
             ),
           ],
         ),
@@ -568,6 +630,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   Widget _buildAutosaveBadge(BuildContext context) {
     final tokens = context.tokens;
     final text = context.text;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.7);
 
     return Semantics(
       liveRegion: true,
@@ -575,24 +638,27 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
         NoteAutosavePhase.idle => Text(
           widget.initialNote == null ? 'New note' : 'Saved',
           key: const Key('note-autosave-status'),
-          style: text.labelMedium?.copyWith(color: tokens.textMuted),
+          style: text.labelMedium?.copyWith(
+            color: subInkColor,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         NoteAutosavePhase.saving => Row(
           key: const Key('note-autosave-status'),
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
+            const SizedBox(
               width: 12,
               height: 12,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: context.colors.primary,
+                color: AppColors.charcoal,
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
             Text(
               'Saving…',
-              style: text.labelMedium?.copyWith(color: tokens.textMuted),
+              style: text.labelMedium?.copyWith(color: subInkColor),
             ),
           ],
         ),
@@ -638,13 +704,17 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   Widget _buildColorPicker(BuildContext context, Color activeAccent) {
     final tokens = context.tokens;
     final text = context.text;
-    final colors = context.colors;
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.65);
 
     return Row(
       children: [
         Text(
           'Color',
-          style: text.labelSmall?.copyWith(color: tokens.textMuted),
+          style: text.labelSmall?.copyWith(
+            color: subInkColor,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(width: AppSpacing.md),
         Expanded(
@@ -677,15 +747,17 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                       color: pastelFill,
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: selected ? colors.onSurface : colors.outline,
+                        color: selected
+                            ? inkColor
+                            : inkColor.withValues(alpha: 0.25),
                         width: selected ? 2.2 : 1,
                       ),
                     ),
                     child: selected
-                        ? Icon(
+                        ? const Icon(
                             Icons.check_rounded,
                             size: 15,
-                            color: AppColors.charcoal,
+                            color: inkColor,
                           )
                         : null,
                   ),

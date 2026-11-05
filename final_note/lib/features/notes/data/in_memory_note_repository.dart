@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../models/note.dart';
 import '../domain/note_repository.dart';
 
-/// Account-partitioned in-memory [NoteRepository] implementation.
+/// Account-partitioned in-memory [NoteRepository] implementation with optional
+/// [SharedPreferences] persistence per [uid].
 ///
 /// Each Firebase [uid] gets its own isolated note bucket, label catalog, and
 /// broadcast streams.
@@ -11,16 +15,23 @@ class InMemoryNoteRepository implements NoteRepository {
   InMemoryNoteRepository({
     this.seedDemoNotes = true,
     this.latency = Duration.zero,
+    this.persistToLocalStorage = false,
   });
 
   final bool seedDemoNotes;
   final Duration latency;
+  final bool persistToLocalStorage;
+
+  static String _notesPrefsKey(String uid) => 'noteflow_notes_v2_$uid';
+  static String _labelsPrefsKey(String uid) => 'noteflow_labels_v2_$uid';
 
   /// Optional test hook to inject an error on the next write operation.
   NoteFailure? nextFailure;
 
   final Map<String, List<Note>> _notesByUid = <String, List<Note>>{};
   final Map<String, Set<String>> _labelsByUid = <String, Set<String>>{};
+  final Set<String> _hydratedUids = <String>{};
+  final Set<String> _modifiedBeforeHydrationUids = <String>{};
   final Map<String, StreamController<List<Note>>> _noteControllersByUid =
       <String, StreamController<List<Note>>>{};
   final Map<String, StreamController<List<String>>> _labelControllersByUid =
@@ -29,6 +40,9 @@ class InMemoryNoteRepository implements NoteRepository {
   List<Note> _bucketFor(String uid) {
     if (uid.trim().isEmpty) {
       throw const NoteFailure('Phiên đăng nhập không hợp lệ.');
+    }
+    if (persistToLocalStorage && !_hydratedUids.contains(uid)) {
+      unawaited(_hydrateFromPrefs(uid));
     }
     return _notesByUid.putIfAbsent(uid, () {
       final seeded = seedDemoNotes
@@ -40,6 +54,63 @@ class InMemoryNoteRepository implements NoteRepository {
       }
       return seeded;
     });
+  }
+
+  Future<void> _hydrateFromPrefs(String uid) async {
+    if (!persistToLocalStorage || !_hydratedUids.add(uid)) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_modifiedBeforeHydrationUids.contains(uid)) {
+        await _persistUidToPrefs(uid);
+        return;
+      }
+      final rawNotes = prefs.getString(_notesPrefsKey(uid));
+      final rawLabels = prefs.getStringList(_labelsPrefsKey(uid));
+      if (rawNotes != null) {
+        final decoded = jsonDecode(rawNotes);
+        if (decoded is List) {
+          final loaded = decoded
+              .whereType<Map>()
+              .map(
+                (item) =>
+                    Note.fromJson(Map<String, dynamic>.from(item))
+                        .copyWith(ownerUid: uid),
+              )
+              .toList();
+          _notesByUid[uid] = sortNotes(loaded);
+          final labelSet = _labelsByUid.putIfAbsent(uid, () => <String>{});
+          labelSet.clear();
+          if (rawLabels != null) {
+            labelSet.addAll(rawLabels);
+          }
+          for (final note in loaded) {
+            labelSet.addAll(note.labels);
+          }
+          _emitNotes(uid);
+          _emitLabels(uid);
+        }
+      } else if (rawLabels != null) {
+        final labelSet = _labelsByUid.putIfAbsent(uid, () => <String>{});
+        labelSet.addAll(rawLabels);
+        _emitLabels(uid);
+      }
+    } catch (_) {
+      // Ignore SharedPreferences errors in headless test environments.
+    }
+  }
+
+  Future<void> _persistUidToPrefs(String uid) async {
+    if (!persistToLocalStorage) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final notesJson = jsonEncode(
+        _bucketFor(uid).map((note) => note.toJson()).toList(),
+      );
+      await prefs.setString(_notesPrefsKey(uid), notesJson);
+      await prefs.setStringList(_labelsPrefsKey(uid), _sortedLabelsFor(uid));
+    } catch (_) {
+      // Ignore SharedPreferences errors in headless test environments.
+    }
   }
 
   Set<String> _labelSetFor(String uid) {
@@ -140,8 +211,10 @@ class InMemoryNoteRepository implements NoteRepository {
     } else {
       bucket[index] = scoped;
     }
+    _modifiedBeforeHydrationUids.add(uid);
     _emitNotes(uid);
     _emitLabels(uid);
+    await _persistUidToPrefs(uid);
     return scoped;
   }
 
@@ -150,7 +223,9 @@ class InMemoryNoteRepository implements NoteRepository {
     await _guardWrite();
     final bucket = _bucketFor(uid);
     bucket.removeWhere((note) => note.id == noteId);
+    _modifiedBeforeHydrationUids.add(uid);
     _emitNotes(uid);
+    await _persistUidToPrefs(uid);
   }
 
   @override
@@ -171,7 +246,9 @@ class InMemoryNoteRepository implements NoteRepository {
       updatedAt: timestamp,
     );
     bucket[index] = updated;
+    _modifiedBeforeHydrationUids.add(uid);
     _emitNotes(uid);
+    await _persistUidToPrefs(uid);
     return updated;
   }
 
@@ -210,7 +287,9 @@ class InMemoryNoteRepository implements NoteRepository {
       throw const NoteFailure('Label already exists.');
     }
     labelSet.add(normalized);
+    _modifiedBeforeHydrationUids.add(uid);
     _emitLabels(uid);
+    await _persistUidToPrefs(uid);
     return _sortedLabelsFor(uid);
   }
 
@@ -257,8 +336,10 @@ class InMemoryNoteRepository implements NoteRepository {
       );
     }
 
+    _modifiedBeforeHydrationUids.add(uid);
     _emitLabels(uid);
     _emitNotes(uid);
+    await _persistUidToPrefs(uid);
     return _sortedLabelsFor(uid);
   }
 
@@ -277,8 +358,10 @@ class InMemoryNoteRepository implements NoteRepository {
       bucket[i] = note.copyWith(labels: List<String>.unmodifiable(remaining));
     }
 
+    _modifiedBeforeHydrationUids.add(uid);
     _emitLabels(uid);
     _emitNotes(uid);
+    await _persistUidToPrefs(uid);
     return _sortedLabelsFor(uid);
   }
 
