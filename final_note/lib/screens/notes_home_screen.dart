@@ -308,6 +308,17 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
+  void _openAccountSettingsDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AccountSettingsDialog(
+        user: widget.user,
+        authBusy: widget.authBusy,
+        onLogout: widget.onLogout,
+      ),
+    );
+  }
+
   void _openEditor({Note? note, required bool isWide}) {
     if (isWide) {
       setState(() {
@@ -579,43 +590,87 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             ),
           ),
           Divider(color: colors.outlineVariant),
-          const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 17,
-                backgroundColor: colors.primaryContainer,
-                child: Icon(
-                  Icons.person_outline_rounded,
-                  color: colors.onPrimaryContainer,
-                  size: 18,
+          const SizedBox(height: AppSpacing.xs),
+          Material(
+            color: Colors.transparent,
+            borderRadius: AppRadius.mdAll,
+            child: InkWell(
+              key: const Key('sidebar-profile-card'),
+              onTap: _openAccountSettingsDialog,
+              borderRadius: AppRadius.mdAll,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.xs,
+                  vertical: AppSpacing.xs,
                 ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Text(
-                      widget.user?.displayName ??
-                          widget.user?.email ??
-                          'Personal space',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: colors.primaryContainer,
+                      child: Icon(
+                        Icons.person_outline_rounded,
+                        color: colors.onPrimaryContainer,
+                        size: 18,
                       ),
                     ),
-                    Text(
-                      widget.user?.email ?? 'Your notes',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.bodySmall?.copyWith(color: tokens.textMuted),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.user?.displayName ??
+                                widget.user?.email ??
+                                'Personal space',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            widget.user?.email ?? 'Your notes',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall?.copyWith(
+                              color: tokens.textMuted,
+                            ),
+                          ),
+                          if (widget.user != null)
+                            Text(
+                              'Firebase UID: ${widget.user!.uid}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.labelSmall?.copyWith(
+                                color: tokens.textMuted,
+                                fontSize: 10,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
+                    Icon(
+                      Icons.manage_accounts_outlined,
+                      size: 18,
+                      color: tokens.textMuted,
+                    ),
+                    if (widget.onLogout != null)
+                      IconButton(
+                        key: const Key('logout'),
+                        tooltip: 'Đăng xuất',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: widget.authBusy ? null : widget.onLogout,
+                        icon: Icon(
+                          Icons.logout_rounded,
+                          size: 17,
+                          color: tokens.textMuted,
+                        ),
+                      ),
                   ],
                 ),
               ),
-            ],
+            ),
           ),
         ],
       ),
@@ -639,7 +694,8 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
 
     return Column(
       children: [
-        _buildTopHeader(context, isWide: isWide, isCompact: isCompact),
+        if (!isWide)
+          _buildTopHeader(context, isWide: isWide, isCompact: isCompact),
         Expanded(
           child: ListView(
             padding: EdgeInsets.fromLTRB(
@@ -845,32 +901,45 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!isWide) ...[
-                const BrandBadge(size: 30, showText: false),
-                const SizedBox(width: AppSpacing.sm),
-              ],
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Xin chào, ${user.displayName ?? user.email ?? 'bạn'}',
-                      style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    SelectableText(
-                      'Firebase UID: ${user.uid}',
-                      style: text.bodySmall?.copyWith(color: tokens.textMuted),
-                    ),
-                  ],
-                ),
+          InkWell(
+            key: const Key('header-profile-card'),
+            onTap: _openAccountSettingsDialog,
+            borderRadius: AppRadius.smAll,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xs,
+                vertical: 2,
               ),
-            ],
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!isWide) ...[
+                    const BrandBadge(size: 30, showText: false),
+                    const SizedBox(width: AppSpacing.sm),
+                  ],
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Xin chào, ${user.displayName ?? user.email ?? 'bạn'}',
+                          style: text.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SelectableText(
+                          'Firebase UID: ${user.uid}',
+                          style: text.bodySmall?.copyWith(
+                            color: tokens.textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
           if (widget.onLogout != null)
             OutlinedButton.icon(
