@@ -1,3 +1,111 @@
+enum NoteStatus {
+  normal,
+  idea,
+  work,
+  personal,
+  important,
+  archived;
+
+  String get label {
+    switch (this) {
+      case NoteStatus.normal:
+        return 'Normal';
+      case NoteStatus.idea:
+        return 'Idea';
+      case NoteStatus.work:
+        return 'Work';
+      case NoteStatus.personal:
+        return 'Personal';
+      case NoteStatus.important:
+        return 'Important';
+      case NoteStatus.archived:
+        return 'Archived';
+    }
+  }
+}
+
+enum NoteAttachmentKind {
+  image,
+  video,
+  file;
+
+  String get label {
+    switch (this) {
+      case NoteAttachmentKind.image:
+        return 'Image';
+      case NoteAttachmentKind.video:
+        return 'Video';
+      case NoteAttachmentKind.file:
+        return 'File';
+    }
+  }
+}
+
+class NoteAttachment {
+  const NoteAttachment({
+    required this.id,
+    required this.name,
+    required this.kind,
+    required this.localPath,
+    this.mimeType = 'application/octet-stream',
+    this.createdAt,
+    this.sizeBytes = 0,
+  });
+
+  final String id;
+  final String name;
+  final NoteAttachmentKind kind;
+  final String localPath;
+  final String mimeType;
+  final DateTime? createdAt;
+  final int sizeBytes;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'kind': kind.name,
+    'localPath': localPath,
+    'mimeType': mimeType,
+    'createdAt': (createdAt ?? DateTime.now()).toIso8601String(),
+    'sizeBytes': sizeBytes,
+  };
+
+  factory NoteAttachment.fromJson(Map<String, dynamic> json) {
+    final kindValue = json['kind']?.toString();
+    return NoteAttachment(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? 'Attachment',
+      kind: NoteAttachmentKind.values.firstWhere(
+        (value) => value.name == kindValue,
+        orElse: () => NoteAttachmentKind.file,
+      ),
+      localPath: json['localPath']?.toString() ?? '',
+      mimeType: json['mimeType']?.toString() ?? 'application/octet-stream',
+      createdAt: json['createdAt'] == null
+          ? null
+          : DateTime.tryParse(json['createdAt'].toString()),
+      sizeBytes: int.tryParse(json['sizeBytes']?.toString() ?? '0') ?? 0,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is NoteAttachment &&
+        other.id == id &&
+        other.name == name &&
+        other.kind == kind &&
+        other.localPath == localPath &&
+        other.mimeType == mimeType &&
+        other.createdAt == createdAt &&
+        other.sizeBytes == sizeBytes;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, kind, localPath, mimeType, createdAt, sizeBytes);
+}
+
 class Note {
   const Note({
     required this.id,
@@ -9,6 +117,8 @@ class Note {
     this.isPinned = false,
     this.pinnedAt,
     this.ownerUid,
+    this.status = NoteStatus.normal,
+    this.attachments = const <NoteAttachment>[],
   });
 
   final String id;
@@ -20,23 +130,36 @@ class Note {
   final bool isPinned;
   final DateTime? pinnedAt;
   final String? ownerUid;
+  final NoteStatus status;
+  final List<NoteAttachment> attachments;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'content': content,
-        'labels': labels,
-        'colorIndex': colorIndex,
-        'updatedAt': updatedAt.toIso8601String(),
-        'isPinned': isPinned,
-        'pinnedAt': pinnedAt?.toIso8601String(),
-      };
+    'id': id,
+    'title': title,
+    'content': content,
+    'labels': labels,
+    'colorIndex': colorIndex,
+    'updatedAt': updatedAt.toIso8601String(),
+    'isPinned': isPinned,
+    'pinnedAt': pinnedAt?.toIso8601String(),
+    'ownerUid': ownerUid,
+    'status': status.name,
+    'attachments': attachments
+        .map((attachment) => attachment.toJson())
+        .toList(),
+  };
 
   factory Note.fromJson(Map<String, dynamic> json) {
-    final labels = (json['labels'] as List?)
-            ?.map((label) => label.toString())
-            .toList() ??
+    final labels =
+        (json['labels'] as List?)?.map((label) => label.toString()).toList() ??
         const <String>[];
+    final attachments =
+        (json['attachments'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .map(NoteAttachment.fromJson)
+            .toList() ??
+        const <NoteAttachment>[];
+    final statusValue = json['status']?.toString();
 
     return Note(
       id: json['id']?.toString() ?? '',
@@ -44,12 +167,19 @@ class Note {
       content: json['content']?.toString() ?? '',
       labels: labels,
       colorIndex: int.tryParse(json['colorIndex']?.toString() ?? '0') ?? 0,
-      updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? '') ??
+      updatedAt:
+          DateTime.tryParse(json['updatedAt']?.toString() ?? '') ??
           DateTime.now(),
       isPinned: json['isPinned'] == true,
       pinnedAt: json['pinnedAt'] == null
           ? null
           : DateTime.tryParse(json['pinnedAt'].toString()),
+      ownerUid: json['ownerUid']?.toString(),
+      status: NoteStatus.values.firstWhere(
+        (value) => value.name == statusValue,
+        orElse: () => NoteStatus.normal,
+      ),
+      attachments: attachments,
     );
   }
 
@@ -64,6 +194,8 @@ class Note {
     DateTime? pinnedAt,
     bool clearPinnedAt = false,
     String? ownerUid,
+    NoteStatus? status,
+    List<NoteAttachment>? attachments,
   }) {
     return Note(
       id: id ?? this.id,
@@ -75,6 +207,8 @@ class Note {
       isPinned: isPinned ?? this.isPinned,
       pinnedAt: clearPinnedAt ? null : pinnedAt ?? this.pinnedAt,
       ownerUid: ownerUid ?? this.ownerUid,
+      status: status ?? this.status,
+      attachments: attachments ?? this.attachments,
     );
   }
 }
@@ -115,6 +249,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       isPinned: true,
       pinnedAt: now.subtract(const Duration(days: 1)),
       ownerUid: ownerUid,
+      status: NoteStatus.important,
     ),
     Note(
       id: 'note-2',
@@ -126,6 +261,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       isPinned: true,
       pinnedAt: now.subtract(const Duration(hours: 10)),
       ownerUid: ownerUid,
+      status: NoteStatus.work,
     ),
     Note(
       id: 'note-3',
@@ -135,6 +271,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       colorIndex: 2,
       updatedAt: now.subtract(const Duration(days: 1)),
       ownerUid: ownerUid,
+      status: NoteStatus.personal,
     ),
     Note(
       id: 'note-4',
@@ -144,6 +281,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       colorIndex: 3,
       updatedAt: now.subtract(const Duration(days: 2)),
       ownerUid: ownerUid,
+      status: NoteStatus.idea,
     ),
     Note(
       id: 'note-5',
@@ -153,6 +291,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       colorIndex: 4,
       updatedAt: now.subtract(const Duration(days: 3)),
       ownerUid: ownerUid,
+      status: NoteStatus.personal,
     ),
     Note(
       id: 'note-6',
@@ -162,6 +301,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       colorIndex: 5,
       updatedAt: now.subtract(const Duration(days: 4)),
       ownerUid: ownerUid,
+      status: NoteStatus.idea,
     ),
   ];
 }

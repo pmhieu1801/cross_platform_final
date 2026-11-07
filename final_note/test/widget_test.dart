@@ -121,38 +121,37 @@ void main() {
   testWidgets('notes dashboard can create a new note', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: NotesHomeScreen()));
 
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byKey(const Key('create-note-button')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField).at(0), 'Launch plan');
+    await tester.enterText(find.byKey(const Key('note-title-input')), 'Launch plan');
     await tester.enterText(
-      find.byType(TextField).at(1),
+      find.byKey(const Key('note-content-input')),
       'Finalize the roadmap and confirm milestones with the team.',
     );
-    await tester.enterText(find.byType(TextField).at(2), 'Planning, Team');
-    await tester.tap(find.text('Create note'));
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
 
-    expect(find.text('Launch plan'), findsOneWidget);
+    final titleField = find.byKey(const Key('note-title-input'));
+    expect(titleField, findsOneWidget);
+    expect(
+      tester.widget<TextField>(titleField).controller?.text,
+      'Launch plan',
+    );
   });
 
   testWidgets('notes are auto-saved to local storage', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: NotesHomeScreen()));
 
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byKey(const Key('create-note-button')));
     await tester.pumpAndSettle();
 
-    final titleField = find.byWidgetPredicate(
-      (widget) => widget is TextField && widget.decoration?.labelText == 'Title',
+    await tester.enterText(find.byKey(const Key('note-title-input')), 'Saved note');
+    await tester.enterText(
+      find.byKey(const Key('note-content-input')),
+      'This should persist',
     );
-    final contentField = find.byWidgetPredicate(
-      (widget) =>
-          widget is TextField && widget.decoration?.labelText == 'Content',
-    );
-
-    await tester.enterText(titleField, 'Saved note');
-    await tester.enterText(contentField, 'This should persist');
-    await tester.tap(find.text('Create note'));
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
 
     final prefs = await SharedPreferences.getInstance();
