@@ -132,7 +132,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
 
-    expect(find.text('Launch plan'), findsOneWidget);
+    final titleField = find.byKey(const Key('note-title-input'));
+    expect(titleField, findsOneWidget);
+    expect(
+      tester.widget<TextField>(titleField).controller?.text,
+      'Launch plan',
+    );
   });
 
   testWidgets('notes are auto-saved to local storage', (tester) async {
