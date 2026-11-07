@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../features/auth/domain/auth_repository.dart';
 import '../models/note.dart';
+import '../services/note_storage.dart';
 import '../theme/theme.dart';
 import '../widgets/widgets.dart';
 import 'note_editor_sheet.dart';
@@ -70,7 +71,7 @@ class NotesHomeScreen extends StatefulWidget {
 
 class _NotesHomeScreenState extends State<NotesHomeScreen> {
   late final List<Note> _localNotes;
-  late final Set<String> _localLabelCatalog;
+  late Set<String> _localLabelCatalog;
   final _searchController = TextEditingController();
   _NotesSection _section = _NotesSection.all;
   _NotesLayout _layout = _NotesLayout.grid;
@@ -84,8 +85,22 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   @override
   void initState() {
     super.initState();
-    _localNotes = List<Note>.of(widget.initialNotes ?? createDemoNotes());
+    _localNotes = List<Note>.of(widget.initialNotes ?? const <Note>[]);
     _localLabelCatalog = _localNotes.expand((note) => note.labels).toSet();
+    if (widget.initialNotes == null) {
+      _loadPersistedNotes();
+    }
+  }
+
+  Future<void> _loadPersistedNotes() async {
+    final saved = await NoteStorage.loadNotes();
+    if (!mounted) return;
+    setState(() {
+      _localNotes
+        ..clear()
+        ..addAll(saved);
+      _localLabelCatalog = _localNotes.expand((note) => note.labels).toSet();
+    });
   }
 
   @override
@@ -154,6 +169,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         _isCreatingNew = false;
       }
     });
+    Future.microtask(() => NoteStorage.saveNotes(_localNotes));
     return draft;
   }
 
@@ -176,6 +192,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         _isCreatingNew = false;
       }
     });
+    Future.microtask(() => NoteStorage.saveNotes(_localNotes));
     return true;
   }
 
@@ -204,70 +221,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         updatedAt: now,
       );
     });
-    Future.microtask(_persistNotes);
-  }
-
-  Future<void> _openEditor({Note? note}) async {
-    final draft = await showDialog<_NoteDraft>(
-      context: context,
-      builder: (context) => _NoteEditorDialog(note: note),
-    );
-    if (draft == null) return;
-
-    setState(() {
-      if (note != null) {
-        final index = _notes.indexWhere((item) => item.id == note.id);
-        if (index == -1) return;
-
-        _notes[index] = _notes[index].copyWith(
-          title: draft.title.trim(),
-          content: draft.content.trim(),
-          labels: draft.labels,
-          updatedAt: DateTime.now(),
-        );
-      } else {
-        _notes.insert(
-          0,
-          Note(
-            id: 'note-${DateTime.now().millisecondsSinceEpoch}',
-            title: draft.title.trim(),
-            content: draft.content.trim(),
-            labels: draft.labels,
-            colorIndex: _notes.length % _noteColors.length,
-            updatedAt: DateTime.now(),
-          ),
-        );
-      }
-    });
-    Future.microtask(_persistNotes);
-  }
-
-  Future<void> _deleteNote(Note note) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete note?'),
-        content: Text('"${note.title}" will be removed from your notes.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(context, true),
-            icon: const Icon(Icons.delete_outline_rounded),
-            label: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    setState(() {
-      _notes.removeWhere((item) => item.id == note.id);
-    });
-    Future.microtask(_persistNotes);
+    Future.microtask(() => NoteStorage.saveNotes(_localNotes));
   }
 
   Future<String?> _handleAddLabel(String name) async {
@@ -1121,135 +1075,6 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   }
 }
 
-class _NoteDraft {
-  const _NoteDraft({
-    required this.title,
-    required this.content,
-    required this.labels,
-  });
-
-  final String title;
-  final String content;
-  final List<String> labels;
-}
-
-class _NoteEditorDialog extends StatefulWidget {
-  const _NoteEditorDialog({this.note});
-
-  final Note? note;
-
-  @override
-  State<_NoteEditorDialog> createState() => _NoteEditorDialogState();
-}
-
-class _NoteEditorDialogState extends State<_NoteEditorDialog> {
-  late final TextEditingController _titleController;
-  late final TextEditingController _contentController;
-  late final TextEditingController _labelsController;
-
-  @override
-  void initState() {
-    super.initState();
-    _titleController = TextEditingController(text: widget.note?.title ?? '');
-    _contentController = TextEditingController(
-      text: widget.note?.content ?? '',
-    );
-    _labelsController = TextEditingController(
-      text: widget.note?.labels.join(', ') ?? '',
-    );
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _contentController.dispose();
-    _labelsController.dispose();
-    super.dispose();
-  }
-
-  List<String> _parseLabels(String raw) {
-    return raw
-        .split(',')
-        .map((label) => label.trim())
-        .where((label) => label.isNotEmpty)
-        .toSet()
-        .toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isEditing = widget.note != null;
-    return AlertDialog(
-      title: Text(isEditing ? 'Edit note' : 'New note'),
-      content: SizedBox(
-        width: 520,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _contentController,
-                minLines: 6,
-                maxLines: 12,
-                decoration: const InputDecoration(
-                  labelText: 'Content',
-                  border: OutlineInputBorder(),
-                  alignLabelWithHint: true,
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _labelsController,
-                decoration: const InputDecoration(
-                  labelText: 'Labels (comma separated)',
-                  hintText: 'Ideas, Work, Personal',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton.icon(
-          onPressed: () {
-            final title = _titleController.text.trim();
-            if (title.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('A note needs a title.')),
-              );
-              return;
-            }
-
-            Navigator.pop(
-              context,
-              _NoteDraft(
-                title: title,
-                content: _contentController.text.trim(),
-                labels: _parseLabels(_labelsController.text),
-              ),
-            );
-          },
-          icon: const Icon(Icons.check_rounded),
-          label: Text(isEditing ? 'Save changes' : 'Create note'),
-        ),
-      ],
-    );
-  }
-}
-
 class _SidebarItem extends StatelessWidget {
   const _SidebarItem({
     required this.icon,
@@ -1532,6 +1357,26 @@ class _NoteCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: AppSpacing.sm + 2),
+                if (note.status != NoteStatus.normal) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      note.status.label,
+                      style: text.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: accent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
                 Text(
                   note.title,
                   maxLines: 2,
@@ -1644,6 +1489,26 @@ class _NoteListTile extends StatelessWidget {
                         ],
                       ],
                     ),
+                    if (note.status != NoteStatus.normal) ...[
+                      const SizedBox(height: 5),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          note.status.label,
+                          style: text.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: accent,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 5),
                     Text(
                       note.content,

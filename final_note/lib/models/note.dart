@@ -1,3 +1,29 @@
+enum NoteStatus {
+  normal,
+  idea,
+  work,
+  personal,
+  important,
+  archived;
+
+  String get label {
+    switch (this) {
+      case NoteStatus.normal:
+        return 'Normal';
+      case NoteStatus.idea:
+        return 'Idea';
+      case NoteStatus.work:
+        return 'Work';
+      case NoteStatus.personal:
+        return 'Personal';
+      case NoteStatus.important:
+        return 'Important';
+      case NoteStatus.archived:
+        return 'Archived';
+    }
+  }
+}
+
 class Note {
   const Note({
     required this.id,
@@ -9,6 +35,7 @@ class Note {
     this.isPinned = false,
     this.pinnedAt,
     this.ownerUid,
+    this.status = NoteStatus.normal,
   });
 
   final String id;
@@ -20,6 +47,7 @@ class Note {
   final bool isPinned;
   final DateTime? pinnedAt;
   final String? ownerUid;
+  final NoteStatus status;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -30,6 +58,8 @@ class Note {
         'updatedAt': updatedAt.toIso8601String(),
         'isPinned': isPinned,
         'pinnedAt': pinnedAt?.toIso8601String(),
+        'ownerUid': ownerUid,
+        'status': status.name,
       };
 
   factory Note.fromJson(Map<String, dynamic> json) {
@@ -37,6 +67,7 @@ class Note {
             ?.map((label) => label.toString())
             .toList() ??
         const <String>[];
+    final statusValue = json['status']?.toString();
 
     return Note(
       id: json['id']?.toString() ?? '',
@@ -50,6 +81,11 @@ class Note {
       pinnedAt: json['pinnedAt'] == null
           ? null
           : DateTime.tryParse(json['pinnedAt'].toString()),
+      ownerUid: json['ownerUid']?.toString(),
+      status: NoteStatus.values.firstWhere(
+        (value) => value.name == statusValue,
+        orElse: () => NoteStatus.normal,
+      ),
     );
   }
 
@@ -64,6 +100,7 @@ class Note {
     DateTime? pinnedAt,
     bool clearPinnedAt = false,
     String? ownerUid,
+    NoteStatus? status,
   }) {
     return Note(
       id: id ?? this.id,
@@ -75,6 +112,7 @@ class Note {
       isPinned: isPinned ?? this.isPinned,
       pinnedAt: clearPinnedAt ? null : pinnedAt ?? this.pinnedAt,
       ownerUid: ownerUid ?? this.ownerUid,
+      status: status ?? this.status,
     );
   }
 }
@@ -115,6 +153,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       isPinned: true,
       pinnedAt: now.subtract(const Duration(days: 1)),
       ownerUid: ownerUid,
+      status: NoteStatus.important,
     ),
     Note(
       id: 'note-2',
@@ -126,6 +165,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       isPinned: true,
       pinnedAt: now.subtract(const Duration(hours: 10)),
       ownerUid: ownerUid,
+      status: NoteStatus.work,
     ),
     Note(
       id: 'note-3',
@@ -135,6 +175,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       colorIndex: 2,
       updatedAt: now.subtract(const Duration(days: 1)),
       ownerUid: ownerUid,
+      status: NoteStatus.personal,
     ),
     Note(
       id: 'note-4',
@@ -144,6 +185,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       colorIndex: 3,
       updatedAt: now.subtract(const Duration(days: 2)),
       ownerUid: ownerUid,
+      status: NoteStatus.idea,
     ),
     Note(
       id: 'note-5',
@@ -153,6 +195,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       colorIndex: 4,
       updatedAt: now.subtract(const Duration(days: 3)),
       ownerUid: ownerUid,
+      status: NoteStatus.personal,
     ),
     Note(
       id: 'note-6',
@@ -162,6 +205,7 @@ List<Note> createDemoNotes({String? ownerUid}) {
       colorIndex: 5,
       updatedAt: now.subtract(const Duration(days: 4)),
       ownerUid: ownerUid,
+      status: NoteStatus.idea,
     ),
   ];
 }

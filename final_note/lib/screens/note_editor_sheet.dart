@@ -96,6 +96,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   late int _colorIndex;
   late bool _isPinned;
   late DateTime? _pinnedAt;
+  late NoteStatus _status;
   late List<String> _labels;
   late List<String> _catalogLabels;
 
@@ -116,6 +117,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     _colorIndex = initial?.colorIndex ?? 0;
     _isPinned = initial?.isPinned ?? false;
     _pinnedAt = initial?.pinnedAt;
+    _status = initial?.status ?? NoteStatus.normal;
     _labels = List<String>.of(initial?.labels ?? const <String>[]);
     _catalogLabels = {...widget.availableLabels, ..._labels}.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -171,6 +173,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       isPinned: _isPinned,
       pinnedAt: _isPinned ? (_pinnedAt ?? now) : null,
       ownerUid: widget.initialNote?.ownerUid,
+      status: _status,
     );
   }
 
@@ -184,6 +187,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     if (previous.content != _contentController.text) return true;
     if (previous.colorIndex != _colorIndex) return true;
     if (previous.isPinned != _isPinned) return true;
+    if (previous.status != _status) return true;
     if (previous.labels.length != _labels.length) return true;
     for (var i = 0; i < _labels.length; i++) {
       if (previous.labels[i] != _labels[i]) return true;
@@ -432,11 +436,50 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
+          _buildStatusPicker(context),
+          const SizedBox(height: AppSpacing.md),
           _buildLabelsSection(context, accent),
           const SizedBox(height: AppSpacing.md),
           _buildColorPicker(context, accent),
         ],
       ),
+    );
+  }
+
+  Widget _buildStatusPicker(BuildContext context) {
+    final text = context.text;
+    final tokens = context.tokens;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Status',
+          style: text.labelSmall?.copyWith(color: tokens.textMuted),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        DropdownButtonFormField<NoteStatus>(
+          initialValue: _status,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ),
+          items: NoteStatus.values
+              .map(
+                (status) => DropdownMenuItem(
+                  value: status,
+                  child: Text(status.label),
+                ),
+              )
+              .toList(),
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() => _status = value);
+            _dirty = true;
+            _scheduleAutosave();
+          },
+        ),
+      ],
     );
   }
 
