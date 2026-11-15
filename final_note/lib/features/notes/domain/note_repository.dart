@@ -19,6 +19,12 @@ abstract class NoteRepository {
 
   Future<Note> saveNote(String uid, Note note);
 
+  Future<Note> updateSyncStatus(
+    String uid,
+    String noteId,
+    NoteSyncStatus status,
+  );
+
   Future<void> deleteNote(String uid, String noteId);
 
   Future<Note> togglePin(String uid, String noteId, {DateTime? now});

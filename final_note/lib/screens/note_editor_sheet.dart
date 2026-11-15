@@ -97,6 +97,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   late bool _isPinned;
   late DateTime? _pinnedAt;
   late NoteStatus _status;
+  late NoteSyncStatus _syncStatus;
   late List<String> _labels;
   late List<NoteAttachment> _attachments;
   late List<String> _catalogLabels;
@@ -119,6 +120,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     _isPinned = initial?.isPinned ?? false;
     _pinnedAt = initial?.pinnedAt;
     _status = initial?.status ?? NoteStatus.normal;
+    _syncStatus = initial?.syncStatus ?? NoteSyncStatus.pending;
     _labels = List<String>.of(initial?.labels ?? const <String>[]);
     _attachments = List<NoteAttachment>.of(
       initial?.attachments ?? const <NoteAttachment>[],
@@ -145,6 +147,10 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     if (oldWidget.availableLabels != widget.availableLabels) {
       _catalogLabels = {...widget.availableLabels, ..._labels}.toList()
         ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    }
+    if (!_dirty &&
+        oldWidget.initialNote?.syncStatus != widget.initialNote?.syncStatus) {
+      _syncStatus = widget.initialNote?.syncStatus ?? NoteSyncStatus.pending;
     }
   }
 
@@ -178,6 +184,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       pinnedAt: _isPinned ? (_pinnedAt ?? now) : null,
       ownerUid: widget.initialNote?.ownerUid,
       status: _status,
+      syncStatus: _syncStatus,
       attachments: List<NoteAttachment>.unmodifiable(_attachments),
     );
   }
@@ -221,22 +228,19 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     setState(() {
       _attachments.add(attachment);
     });
-    _dirty = true;
-    _scheduleAutosave();
+    _markPendingAndScheduleAutosave();
   }
 
   void _removeAttachment(NoteAttachment attachment) {
     setState(() {
       _attachments.removeWhere((item) => item.id == attachment.id);
     });
-    _dirty = true;
-    _scheduleAutosave();
+    _markPendingAndScheduleAutosave();
   }
 
   void _onFieldEdited() {
     if (!_differsFromLastSaved()) return;
-    _dirty = true;
-    _scheduleAutosave();
+    _markPendingAndScheduleAutosave();
   }
 
   void _toggleLabel(String label) {
@@ -247,8 +251,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
         _labels.add(label);
       }
     });
-    _dirty = true;
-    _scheduleAutosave();
+    _markPendingAndScheduleAutosave();
   }
 
   void _addCustomLabel() {
@@ -269,7 +272,14 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       }
       _newLabelController.clear();
     });
+    _markPendingAndScheduleAutosave();
+  }
+
+  void _markPendingAndScheduleAutosave() {
     _dirty = true;
+    if (_syncStatus != NoteSyncStatus.pending) {
+      setState(() => _syncStatus = NoteSyncStatus.pending);
+    }
     _scheduleAutosave();
   }
 
@@ -315,7 +325,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
         if (mounted) {
           setState(() {
             _phase = NoteAutosavePhase.error;
-            _errorMessage = 'Could not save changes. Tap retry.';
+            _errorMessage = 'Could not save locally. Tap retry.';
           });
         }
         return false;
@@ -325,6 +335,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       _lastSavedSnapshot = saved;
       if (mounted) {
         setState(() {
+          _syncStatus = saved.syncStatus;
           _phase = NoteAutosavePhase.saved;
           _errorMessage = null;
         });
@@ -334,7 +345,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       if (mounted) {
         setState(() {
           _phase = NoteAutosavePhase.error;
-          _errorMessage = 'Could not save changes. Tap retry.';
+          _errorMessage = 'Could not save locally. Tap retry.';
         });
       }
       return false;
@@ -403,7 +414,19 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 ),
               ),
               const SizedBox(width: AppSpacing.xs),
-              Expanded(child: _buildAutosaveBadge(context)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildAutosaveBadge(context),
+                    NoteSyncStatusIndicator(
+                      status: _syncStatus,
+                      showLabel: true,
+                    ),
+                  ],
+                ),
+              ),
               IconButton(
                 key: const Key('note-editor-pin'),
                 tooltip: _isPinned ? 'Unpin note' : 'Pin note',
@@ -412,8 +435,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                     _isPinned = !_isPinned;
                     _pinnedAt = _isPinned ? DateTime.now() : null;
                   });
-                  _dirty = true;
-                  _scheduleAutosave();
+                  _markPendingAndScheduleAutosave();
                 },
                 icon: Icon(
                   _isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
@@ -513,8 +535,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
           onChanged: (value) {
             if (value == null) return;
             setState(() => _status = value);
-            _dirty = true;
-            _scheduleAutosave();
+            _markPendingAndScheduleAutosave();
           },
         ),
       ],
@@ -718,7 +739,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       liveRegion: true,
       child: switch (_phase) {
         NoteAutosavePhase.idle => Text(
-          widget.initialNote == null ? 'New note' : 'Saved',
+          widget.initialNote == null ? 'New note' : 'Saved locally',
           key: const Key('note-autosave-status'),
           style: text.labelMedium?.copyWith(color: tokens.textMuted),
         ),
@@ -736,7 +757,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             ),
             const SizedBox(width: AppSpacing.sm),
             Text(
-              'Saving…',
+              'Saving locally…',
               style: text.labelMedium?.copyWith(color: tokens.textMuted),
             ),
           ],
@@ -745,10 +766,10 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
           key: const Key('note-autosave-status'),
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_done_outlined, size: 16, color: tokens.success),
+            Icon(Icons.save_outlined, size: 16, color: tokens.success),
             const SizedBox(width: AppSpacing.xs),
             Text(
-              'Saved',
+              'Saved locally',
               style: text.labelMedium?.copyWith(
                 color: tokens.success,
                 fontWeight: FontWeight.w700,
@@ -810,8 +831,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                   onTap: () {
                     if (_colorIndex == index) return;
                     setState(() => _colorIndex = index);
-                    _dirty = true;
-                    _scheduleAutosave();
+                    _markPendingAndScheduleAutosave();
                   },
                   child: AnimatedContainer(
                     duration: AppDurations.fast,

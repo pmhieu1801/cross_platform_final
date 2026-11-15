@@ -259,7 +259,8 @@ Luồng tracker: Backlog → Ready → In Progress → PR → QA Web + Native �
 
 - Dependency: M2 local store/UI; M3 queue/retry/conflict/auth.
 - Acceptance: Previously loaded notes available offline; edits durable across reopen/reconnect; pending/synced/failed and retry; isolated UID caches; documented conflict strategy on Web/native.
-- Evidence: chưa kiểm chứng; owner bổ sung test Web/native, PR và demo timecode khi thực hiện.
+- Progress: local notes remain `pending` until a sync service reports `synced` or `failed`; model persistence and status rendering have focused tests. No remote sync queue, retry/conflict handling, or Web/Android runtime evidence yet, so R31 is not complete.
+- Evidence: see `notes_crud_autosave_test.dart`; owner bổ sung Web/native tests and demo timecode when sync is implemented.
 - DoD: loading/error/permission/UID isolation đúng phạm vi; relevant automated tests và hành vi Web/Android; reviewer khác xác nhận; PR merge và tracker/evidence cập nhật; schema đổi cần migration/rules/owner review.
 
 ### R32 - Cross-platform build and web deployment
