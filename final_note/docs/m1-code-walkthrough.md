@@ -69,6 +69,16 @@ Ví dụ Linh đăng ký bằng inbox mình sở hữu:
 
 Tests mới: test/firebase_verification_repository_test.dart kiểm các bước SDK bằng stub; test/verification_test.dart kiểm UI/state/lifecycle/account switch. Đây là tests cô lập. Email thật, handler thật, native/browser và reload phải đối chiếu riêng trong m1-week2-verification.md. Khi M2 đưa Notes vào shell, cần giữ banner này; banner ở HomeScreen không tự bảo đảm Notes consumer đã tích hợp.
 
+## 9. Khôi phục mật khẩu W2-02
+
+Ví dụ Linh đã đăng xuất và quên mật khẩu. Linh bấm **Forgot password?** ở LoginScreen. AuthForm điều hướng đến `/forgot-password` và session guard cho phép phiên signed-out đi vào form. ForgotPasswordScreen kiểm email, rồi gọi PasswordResetController. Controller đặt trạng thái loading trước khi đợi repository để ngăn gửi hai lần, kể cả khi bấm Enter và nút cùng lúc.
+
+FirebaseAuthRepository gọi `sendPasswordResetEmail`. Nếu request được chấp nhận, màn hình hướng dẫn Linh kiểm tra inbox hoặc spam nếu email có tài khoản. Lỗi `user-not-found` từ backend đời cũ cũng dẫn đến hướng dẫn này. Lỗi mạng hoặc rate limit hiện lỗi phù hợp và bật lại nút. Khi Linh rời form trong lúc request đang chạy, provider bỏ kết quả UI của request đó.
+
+Linh mở email bằng trình duyệt. Trang HTTPS của Firebase kiểm link một lần và cho nhập mật khẩu mới. Sau khi đổi thành công Linh quay lại NoteFlow, bấm **Back to sign in** và đăng nhập bằng mật khẩu mới. Quyết định mở home vẫn đến từ Firebase session stream. API W2-02 không gọi signIn hoặc ghi session, và mã khôi phục chỉ được xử lý tại trang Firebase.
+
+Đọc theo đường đi `lib/screens/login_screen.dart` → `lib/features/auth/presentation/auth_form.dart` → `lib/routing/session_guard.dart` và `app_router.dart` → `forgot_password_screen.dart` → `password_reset_controller.dart` → `firebase_auth_repository.dart`.
+
 ## Tự kiểm tra trước vấn đáp
 
 1. Vì sao loading không được coi là signed-out?

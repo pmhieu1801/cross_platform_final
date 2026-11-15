@@ -21,6 +21,7 @@ abstract interface class AuthRepository {
     required String password,
   });
   Future<void> signOut();
+  Future<void> requestPasswordReset(String email);
   Future<void> sendVerificationEmail(String expectedUid);
   Future<void> refreshCurrentUser(String expectedUid);
 }
