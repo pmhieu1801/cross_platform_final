@@ -1319,6 +1319,7 @@ class _NoteCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    NoteSyncStatusIndicator(status: note.syncStatus),
                     if (note.isPinned)
                       Padding(
                         padding: const EdgeInsets.only(right: 4),
@@ -1483,6 +1484,7 @@ class _NoteListTile extends StatelessWidget {
                             ),
                           ),
                         ),
+                          NoteSyncStatusIndicator(status: note.syncStatus),
                         if (note.isPinned) ...[
                           const SizedBox(width: 7),
                           Icon(Icons.push_pin_rounded, color: accent, size: 15),

@@ -328,6 +328,7 @@ class LocalNoteRepository implements NoteRepository {
       final scoped = note.copyWith(
         ownerUid: uid,
         labels: List<String>.unmodifiable(cleanedLabels),
+        syncStatus: NoteSyncStatus.pending,
       );
       final index = bucket.indexWhere((existing) => existing.id == scoped.id);
       if (index == -1) {
@@ -337,6 +338,27 @@ class LocalNoteRepository implements NoteRepository {
       }
       return scoped;
     });
+  }
+
+  @override
+  Future<Note> updateSyncStatus(
+    String uid,
+    String noteId,
+    NoteSyncStatus status,
+  ) {
+    return _change(
+      uid,
+      (bucket, _) {
+        final index = bucket.indexWhere((note) => note.id == noteId);
+        if (index == -1) {
+          throw const NoteFailure('Không tìm thấy ghi chú.');
+        }
+        final updated = bucket[index].copyWith(syncStatus: status);
+        bucket[index] = updated;
+        return updated;
+      },
+      emitLabels: false,
+    );
   }
 
   @override
@@ -367,6 +389,7 @@ class LocalNoteRepository implements NoteRepository {
           pinnedAt: pinning ? timestamp : null,
           clearPinnedAt: !pinning,
           updatedAt: timestamp,
+          syncStatus: NoteSyncStatus.pending,
         );
         bucket[index] = updated;
         return updated;
@@ -466,6 +489,7 @@ class LocalNoteRepository implements NoteRepository {
         }
         bucket[i] = note.copyWith(
           labels: List<String>.unmodifiable(updatedLabels),
+          syncStatus: NoteSyncStatus.pending,
         );
       }
 
@@ -483,7 +507,10 @@ class LocalNoteRepository implements NoteRepository {
         final note = bucket[i];
         if (!note.labels.contains(target)) continue;
         final remaining = note.labels.where((item) => item != target).toList();
-        bucket[i] = note.copyWith(labels: List<String>.unmodifiable(remaining));
+        bucket[i] = note.copyWith(
+          labels: List<String>.unmodifiable(remaining),
+          syncStatus: NoteSyncStatus.pending,
+        );
       }
       return _sortedLabelsFrom(labelSet);
     });

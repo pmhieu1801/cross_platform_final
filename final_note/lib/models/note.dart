@@ -24,6 +24,23 @@ enum NoteStatus {
   }
 }
 
+enum NoteSyncStatus {
+  pending,
+  synced,
+  failed;
+
+  String get label {
+    switch (this) {
+      case NoteSyncStatus.pending:
+        return 'Pending sync';
+      case NoteSyncStatus.synced:
+        return 'Synced';
+      case NoteSyncStatus.failed:
+        return 'Sync failed';
+    }
+  }
+}
+
 enum NoteAttachmentKind {
   image,
   video,
@@ -118,6 +135,7 @@ class Note {
     this.pinnedAt,
     this.ownerUid,
     this.status = NoteStatus.normal,
+    this.syncStatus = NoteSyncStatus.pending,
     this.attachments = const <NoteAttachment>[],
   });
 
@@ -131,6 +149,7 @@ class Note {
   final DateTime? pinnedAt;
   final String? ownerUid;
   final NoteStatus status;
+  final NoteSyncStatus syncStatus;
   final List<NoteAttachment> attachments;
 
   Map<String, dynamic> toJson() => {
@@ -144,6 +163,7 @@ class Note {
     'pinnedAt': pinnedAt?.toIso8601String(),
     'ownerUid': ownerUid,
     'status': status.name,
+    'syncStatus': syncStatus.name,
     'attachments': attachments
         .map((attachment) => attachment.toJson())
         .toList(),
@@ -160,6 +180,7 @@ class Note {
             .toList() ??
         const <NoteAttachment>[];
     final statusValue = json['status']?.toString();
+    final syncStatusValue = json['syncStatus']?.toString();
 
     return Note(
       id: json['id']?.toString() ?? '',
@@ -179,6 +200,10 @@ class Note {
         (value) => value.name == statusValue,
         orElse: () => NoteStatus.normal,
       ),
+      syncStatus: NoteSyncStatus.values.firstWhere(
+        (value) => value.name == syncStatusValue,
+        orElse: () => NoteSyncStatus.pending,
+      ),
       attachments: attachments,
     );
   }
@@ -195,6 +220,7 @@ class Note {
     bool clearPinnedAt = false,
     String? ownerUid,
     NoteStatus? status,
+    NoteSyncStatus? syncStatus,
     List<NoteAttachment>? attachments,
   }) {
     return Note(
@@ -208,6 +234,7 @@ class Note {
       pinnedAt: clearPinnedAt ? null : pinnedAt ?? this.pinnedAt,
       ownerUid: ownerUid ?? this.ownerUid,
       status: status ?? this.status,
+      syncStatus: syncStatus ?? this.syncStatus,
       attachments: attachments ?? this.attachments,
     );
   }
