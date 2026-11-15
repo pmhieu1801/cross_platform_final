@@ -1,6 +1,7 @@
 import 'package:final_note/features/auth/application/auth_providers.dart';
 import 'package:final_note/features/notes/application/note_providers.dart';
 import 'package:final_note/features/notes/data/in_memory_note_repository.dart';
+import 'package:final_note/features/notes/data/local_note_repository.dart';
 import 'package:final_note/features/notes/domain/note_repository.dart';
 import 'package:final_note/models/note.dart';
 import 'package:final_note/screens/note_editor_sheet.dart';
@@ -9,6 +10,7 @@ import 'package:final_note/theme/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_auth_repository.dart';
 
@@ -17,6 +19,70 @@ Widget _wrapWithTheme(Widget child) {
 }
 
 void main() {
+  group('LocalNoteRepository persistence', () {
+    test(
+      'restores notes and labels across instances without crossing UIDs',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final firstRepository = LocalNoteRepository(seedDemoNotes: false);
+        final updatedAt = DateTime(2026, 11, 14, 12);
+        final attachment = NoteAttachment(
+          id: 'attachment-1',
+          name: 'agenda.pdf',
+          kind: NoteAttachmentKind.file,
+          localPath: 'local://agenda.pdf',
+          mimeType: 'application/pdf',
+          createdAt: updatedAt,
+          sizeBytes: 2048,
+        );
+        final note = Note(
+          id: 'note-a1',
+          title: 'Persisted note',
+          content: 'Survives an app restart',
+          labels: const ['Work'],
+          colorIndex: 2,
+          updatedAt: updatedAt,
+          isPinned: true,
+          pinnedAt: updatedAt,
+          status: NoteStatus.important,
+          attachments: [attachment],
+        );
+        final saved = await firstRepository.saveNote('uid-a', note);
+        await firstRepository.addLabel('uid-a', 'Ideas');
+        await firstRepository.dispose();
+
+        final restartedRepository = LocalNoteRepository(seedDemoNotes: false);
+        addTearDown(restartedRepository.dispose);
+
+        final restoredNotes = await restartedRepository.listNotes('uid-a');
+        expect(restoredNotes, hasLength(1));
+        expect(restoredNotes.single.toJson(), saved.toJson());
+        expect(await restartedRepository.listLabels('uid-a'), [
+          'Ideas',
+          'Work',
+        ]);
+        expect(await restartedRepository.listNotes('uid-b'), isEmpty);
+        expect(await restartedRepository.listLabels('uid-b'), isEmpty);
+      },
+    );
+
+    test(
+      'reports corrupt persisted data instead of replacing it with demo notes',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'noteflow_account_notes_v1_dWlkLWE': '{invalid',
+        });
+        final repository = LocalNoteRepository();
+        addTearDown(repository.dispose);
+
+        await expectLater(
+          repository.listNotes('uid-a'),
+          throwsA(isA<NoteFailure>()),
+        );
+      },
+    );
+  });
+
   group('NoteRepository & UID isolation (R11, R12, R13, R17)', () {
     test(
       'isolates notes strictly per UID and cancels old account streams',
