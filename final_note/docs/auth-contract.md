@@ -47,6 +47,8 @@ Form công khai gọi `passwordResetProvider` → `AuthRepository.requestPasswor
 
 Trang Firebase HTTPS nhận mã một lần, kiểm tra link và đặt mật khẩu mới. NoteFlow không nhận mã, mật khẩu mới hay continue URL từ handler. Quay lại app, người dùng đăng nhập thủ công qua màn Login. `userChanges()` tiếp tục là nguồn phiên. Xem [Firebase Auth Flutter](https://firebase.google.com/docs/auth/flutter/manage-users) và [Email enumeration protection](https://docs.cloud.google.com/identity-platform/docs/admin/email-enumeration-protection).
 
+Cập nhật 18/11/2026: router `/home` dựng HomeScreen. Adapter đọc phiên Auth và nối UID, VerificationBanner, logout, Notes callbacks vào NotesHomeScreen. Repository lưu Notes theo UID do nhóm triển khai ở PR #33 tiếp tục được dùng qua provider. Dữ liệu Notes từng lưu dưới key chung `noteflow_notes_v1` cần M2 chốt owner và cách chuyển sang store theo tài khoản.
+
 ## Logout và ranh giới tài khoản
 
 - UI gọi `authActionsProvider.notifier.signOut()`, repository gọi Firebase.signOut(). Khi thất bại, báo lỗi và giữ session đúng SDK; không giả thành công.

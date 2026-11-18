@@ -81,6 +81,8 @@ Linh mở email bằng trình duyệt. Trang HTTPS của Firebase kiểm link m�
 
 ## Tự kiểm tra trước vấn đáp
 
+Cập nhật tích hợp 18/11/2026: `/home` đi qua HomeScreen trước khi dựng NotesHomeScreen. HomeScreen đọc phiên Firebase, cấp UID/banner/logout và nối các provider Notes theo account. Nếu router dựng NotesHomeScreen trực tiếp, widget nhận thiếu user và callbacks, nên đăng nhập đúng vẫn thiếu UID, banner và đăng xuất. Đổi lại điểm nối này làm 12 ca Auth/Verification lỗi trước đó qua trở lại, full suite đạt 68 tests. Phần lưu Notes theo UID thuộc repository nhóm đã có; dữ liệu key chung cũ cần M2 chốt cách gán owner khi chuyển store.
+
 1. Vì sao loading không được coi là signed-out?
 2. Nếu Firebase tạo account xong nhưng updateDisplayName lỗi, UI phải nói gì?
 3. Tại sao callback login thành công không tự điều hướng?
