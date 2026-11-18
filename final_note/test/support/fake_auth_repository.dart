@@ -23,6 +23,7 @@ class FakeAuthRepository implements AuthRepository {
   int signInCalls = 0;
   int registerCalls = 0;
   int signOutCalls = 0;
+  int passwordResetCalls = 0;
   String? receivedEmail;
   String? receivedName;
   int verificationCalls = 0;
@@ -88,6 +89,13 @@ class FakeAuthRepository implements AuthRepository {
     signOutCalls++;
     await _complete();
     events.add(null);
+  }
+
+  @override
+  Future<void> requestPasswordReset(String email) async {
+    passwordResetCalls++;
+    receivedEmail = email;
+    await _complete();
   }
 
   Future<void> dispose() => events.close();

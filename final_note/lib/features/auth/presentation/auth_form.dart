@@ -35,6 +35,7 @@ class AuthForm extends ConsumerWidget {
       error: action.error,
       onSubmit: actions.signIn,
       onCreateAccount: () => navigate(AppRoutes.register),
+      onForgotPassword: () => navigate(AppRoutes.forgotPassword),
     );
   }
 }
