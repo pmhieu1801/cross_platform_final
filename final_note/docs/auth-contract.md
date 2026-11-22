@@ -8,8 +8,8 @@ Source: `lib/features/auth/domain/auth_repository.dart`, `application/auth_provi
 
 | Thành phần | Contract |
 | --- | --- |
-| AuthUser | uid:String, email:String?, displayName:String?, emailVerified:bool; snapshot bất biến, không có password/token |
-| AuthRepository | watchSession(), signIn(email,password), register(email,displayName,password) → RegistrationResult, signOut({expectedUid}), sendVerificationEmail(expectedUid), refreshCurrentUser(expectedUid), requestPasswordReset(email), changePassword(expectedUid,currentPassword,newPassword) |
+| AuthUser | uid:String, email:String?, displayName:String?, emailVerified:bool, photoUrl:String?; snapshot bất biến, không có password/token |
+| AuthRepository | watchSession(), signIn(email,password), register(email,displayName,password) → RegistrationResult, signOut({expectedUid}), sendVerificationEmail(expectedUid), refreshCurrentUser(expectedUid), requestPasswordReset(email), changePassword(expectedUid,currentPassword,newPassword), updateDisplayName(expectedUid,displayName) |
 | RegistrationResult (W2-01) | uid, verificationSent, warning; account đã tồn tại dù bước tên/mail thất bại; không chứa password/token/action code |
 | verificationActionsProvider(uid) (W2-01) | sending/refreshing/retryAt/message/error; resend()/refresh(); feedback theo UID và lease, cooldown gửi lại 60 giây trong tiến trình |
 | authSessionProvider | AsyncValue<AuthUser?>: loading chưa biết phiên; data(null) signed out; data(user) signed in; error không xác định được phiên |
@@ -48,6 +48,16 @@ Form công khai gọi `passwordResetProvider` → `AuthRepository.requestPasswor
 Trang Firebase HTTPS nhận mã một lần, kiểm tra link và đặt mật khẩu mới. NoteFlow không nhận mã, mật khẩu mới hay continue URL từ handler. Quay lại app, người dùng đăng nhập thủ công qua màn Login. `userChanges()` tiếp tục là nguồn phiên. Xem [Firebase Auth Flutter](https://firebase.google.com/docs/auth/flutter/manage-users) và [Email enumeration protection](https://docs.cloud.google.com/identity-platform/docs/admin/email-enumeration-protection).
 
 Cập nhật 18/11/2026: router `/home` dựng HomeScreen. Adapter đọc phiên Auth và nối UID, VerificationBanner, logout, Notes callbacks vào NotesHomeScreen. Repository lưu Notes theo UID do nhóm triển khai ở PR #33 tiếp tục được dùng qua provider. Dữ liệu Notes từng lưu dưới key chung `noteflow_notes_v1` cần M2 chốt owner và cách chuyển sang store theo tài khoản.
+
+## Hồ sơ W2-04
+
+`/profile` là private route. HomeScreen chỉ thêm callback mở hồ sơ vào Notes header; M1 không thay Notes repository. Source hồ sơ là Firebase Auth (`displayName`, `email`, `uid`, `photoURL` được map thành `photoUrl`), không tạo Firestore User schema. Email/UID chỉ đọc trong phạm vi này. ProfileAvatar dùng ảnh HTTPS khi có URL; ảnh vắng, URL không hợp lệ hoặc tải lỗi dùng mặc định. Chưa có picker/upload hoặc thay photoURL trong W2-04.
+
+Mở màn hình → request reload sau frame đầu → `ProfileActions.refresh` → `refreshCurrentUser(expectedUid)` → SDK reload/userChanges. Điều này nhận được tên đổi từ thiết bị khác thay vì chỉ dùng profile cache cũ. Nút Refresh thực hiện cùng luồng; không tuyên bố Auth profile có realtime sync giữa client khi chưa reload.
+
+Edit → form validate tên → `ProfileActions.saveName` → `updateDisplayName(expectedUid,displayName)` → Firebase User.updateDisplayName. Cả controller và adapter trim tên, từ chối tên rỗng; khác password vẫn giữ nguyên ký tự. Success/error chỉ thuộc lease hiện tại; draft được giữ khi lỗi, bỏ khi cancel/rời màn hình/đổi UID. Provider autoDispose và watch account lease để bỏ callback cũ. Tên đang hiển thị luôn lấy từ session stream, không tự ghi một AuthUser giả từ input.
+
+API/cách dùng mới là implementation M1 chờ nhóm review, không phải owner signoff. Xem [báo cáo W2-04](m1-week2-profile.md). Avatar upload/persistence/rules tiếp tục thuộc W2-05.
 
 ## Logout và ranh giới tài khoản
 

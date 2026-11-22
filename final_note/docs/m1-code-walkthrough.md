@@ -91,6 +91,16 @@ Provider chỉ giữ phase, UID và thông báo an toàn. Mật khẩu được 
 
 Đọc theo luồng: `lib/features/auth/presentation/change_password_screen.dart` → `application/change_password_controller.dart` → `domain/auth_repository.dart` → `data/firebase_auth_repository.dart`. Điểm mở form ở `lib/features/home/home_screen.dart`, route ở `lib/routing/app_router.dart`. `test/change_password_test.dart` kiểm form/state/races bằng fake; `test/firebase_change_password_repository_test.dart` kiểm thứ tự SDK và UID bằng stub. `integration_test/change_password_real_test.dart` dùng SDK/Firebase thật với app Firebase thứ hai và account mới chỉ thuộc lượt test, không đăng xuất tài khoản đang có của owner. Evidence của test này không thay bằng chứng thao tác giao diện Web/Android.
 
+## 11. Hồ sơ W2-04
+
+Ví dụ Linh mở **Profile** bằng biểu tượng người dùng ở header Notes. Router chỉ cho phiên signed-in vào và dùng key UID để form Linh không được tái dùng khi đăng nhập B. Màn hình hiển thị tên/email/UID từ Auth snapshot; email và UID không có ô sửa. Ảnh HTTPS từ Auth.photoURL được hiển thị nếu tải được, còn lại dùng avatar mặc định. Đây chưa phải upload avatar thật của W2-05.
+
+Mở Profile gọi refresh sau frame đầu để không cập nhật provider trong lúc dựng widget. `ProfileActions` gọi repository → `User.reload()` → `userChanges()` trả snapshot mới. Nếu Linh sửa tên trên thiết bị khác, quay lại Profile hoặc bấm **Refresh profile** sẽ đọc lại từ Firebase; stream của client không tự nhận mọi chỉnh sửa từ xa ngay lập tức.
+
+Linh bấm **Edit display name**, nhập `  Linh Nguyễn  ` rồi Save. Form/controller/adapter chặn tên chỉ có khoảng trắng. Adapter gửi `Linh Nguyễn` bằng `User.updateDisplayName`, không tự tạo document User hoặc đổi email. Firebase stream cập nhật tên trên Profile và lời chào Home. Hoàn tất Future không được dùng để giả session mới. Lưu lỗi giữ bản nhập để retry; Cancel hoặc rời màn hình bỏ draft. Callback muộn kiểm lease/generation/ref.mounted để không báo kết quả cho B.
+
+Đọc `lib/features/auth/presentation/profile_screen.dart` → `application/profile_controller.dart` → `data/firebase_auth_repository.dart`; `profile_avatar.dart` chứa default/loading/error fallback. Các test `test/profile_test.dart`, `test/firebase_profile_repository_test.dart` kiểm form, SDK boundary và account switch. `integration_test/profile_real_test.dart` chạy form production với Firebase thật bằng account tạm và hai Firebase app phụ: client thứ hai đăng nhập mới đọc tên đã lưu, đổi tên rồi client đầu reload để nhận thay đổi. Hai client trên Android không tự chứng minh lượt Web hoặc reboot hệ điều hành.
+
 ## Tự kiểm tra trước vấn đáp
 
 Cập nhật tích hợp 18/11/2026: `/home` đi qua HomeScreen trước khi dựng NotesHomeScreen. HomeScreen đọc phiên Firebase, cấp UID/banner/logout và nối các provider Notes theo account. Nếu router dựng NotesHomeScreen trực tiếp, widget nhận thiếu user và callbacks, nên đăng nhập đúng vẫn thiếu UID, banner và đăng xuất. Đổi lại điểm nối này làm 12 ca Auth/Verification lỗi trước đó qua trở lại, full suite đạt 68 tests. Phần lưu Notes theo UID thuộc repository nhóm đã có; dữ liệu key chung cũ cần M2 chốt cách gán owner khi chuyển store.

@@ -49,6 +49,7 @@ class HomeScreen extends ConsumerWidget {
       authError: authAction.error,
       onLogout: ref.read(authActionsProvider.notifier).signOut,
       onChangePassword: () => context.go(AppRoutes.changePassword),
+      onProfile: () => context.go(AppRoutes.profile),
       notes: notes,
       labels: labels,
       isLoading: isLoading,

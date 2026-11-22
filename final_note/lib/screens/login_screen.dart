@@ -204,7 +204,10 @@ class _LoginScreenState extends State<LoginScreen> {
               validator: Validators.email,
             ),
             const SizedBox(height: AppSpacing.lg),
-            Row(
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: AppSpacing.md,
               children: [
                 Text(
                   'Password',
@@ -212,7 +215,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const Spacer(),
                 TextButton(
                   onPressed: widget.isLoading ? null : widget.onForgotPassword,
                   style: TextButton.styleFrom(
@@ -285,16 +287,20 @@ class _LoginScreenState extends State<LoginScreen> {
             Row(
               children: [
                 Expanded(child: Divider(color: colors.outlineVariant)),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.md,
-                  ),
-                  child: Text(
-                    'NEW TO NOTEFLOW?',
-                    style: text.labelSmall?.copyWith(
-                      color: tokens.textMuted,
-                      letterSpacing: 1.2,
-                      fontWeight: FontWeight.w700,
+                Expanded(
+                  flex: 4,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
+                    child: Text(
+                      'NEW TO NOTEFLOW?',
+                      textAlign: TextAlign.center,
+                      style: text.labelSmall?.copyWith(
+                        color: tokens.textMuted,
+                        letterSpacing: 1.2,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),

@@ -84,6 +84,10 @@ Outputs ignored: `build/web/`, `build/app/outputs/flutter-apk/app-debug.apk`. AP
 
 ## Bàn giao
 
+- [Hồ sơ W2-04: luồng, test và giới hạn nghiệm thu](docs/m1-week2-profile.md)
+- [Đổi mật khẩu W2-03: luồng, test và giới hạn nghiệm thu](docs/m1-week2-change-password.md)
+- [Khôi phục mật khẩu W2-02](docs/m1-week2-password-reset.md)
+
 - [Phạm vi/checklist](docs/m1-week1-plan.md)
 - [Contract Auth và schema đề xuất cần owner chốt](docs/auth-contract.md)
 - [Kiểm thử, evidence, giới hạn](docs/m1-week1-verification.md)

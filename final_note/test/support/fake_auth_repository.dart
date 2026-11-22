@@ -36,6 +36,11 @@ class FakeAuthRepository implements AuthRepository {
   String? receivedName;
   int verificationCalls = 0;
   int refreshCalls = 0;
+  int profileUpdateCalls = 0;
+  String? profileUid;
+  String? profileName;
+  Completer<void>? profilePending;
+  AuthFailure? profileFailure;
   Completer<void>? verificationPending;
   AuthFailure? verificationFailure;
   AuthFailure? refreshFailure;
@@ -98,6 +103,18 @@ class FakeAuthRepository implements AuthRepository {
     await _complete();
     if (signOutFailure != null) throw signOutFailure!;
     if (emitSignOut) events.add(null);
+  }
+
+  @override
+  Future<void> updateDisplayName({
+    required String expectedUid,
+    required String displayName,
+  }) async {
+    profileUpdateCalls++;
+    profileUid = expectedUid;
+    profileName = displayName;
+    if (profilePending != null) await profilePending!.future;
+    if (profileFailure != null) throw profileFailure!;
   }
 
   @override

@@ -4,11 +4,13 @@ class AuthUser {
     required this.email,
     required this.displayName,
     required this.emailVerified,
+    this.photoUrl,
   });
   final String uid;
   final String? email;
   final String? displayName;
   final bool emailVerified;
+  final String? photoUrl;
 }
 
 abstract interface class AuthRepository {
@@ -27,6 +29,10 @@ abstract interface class AuthRepository {
     required String newPassword,
   });
   Future<void> requestPasswordReset(String email);
+  Future<void> updateDisplayName({
+    required String expectedUid,
+    required String displayName,
+  });
   Future<void> sendVerificationEmail(String expectedUid);
   Future<void> refreshCurrentUser(String expectedUid);
 }

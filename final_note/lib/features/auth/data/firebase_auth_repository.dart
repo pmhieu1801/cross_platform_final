@@ -15,6 +15,7 @@ class FirebaseAuthRepository implements AuthRepository {
             email: user.email,
             displayName: user.displayName,
             emailVerified: user.emailVerified,
+            photoUrl: user.photoURL,
           ),
   );
 
@@ -115,6 +116,20 @@ class FirebaseAuthRepository implements AuthRepository {
       // response for this case and surface all other failures.
       if (error.code != 'user-not-found') rethrow;
     }
+  });
+
+  @override
+  Future<void> updateDisplayName({
+    required String expectedUid,
+    required String displayName,
+  }) => _translate(() async {
+    final name = displayName.trim();
+    if (name.isEmpty) {
+      throw const AuthFailure('Tên hiển thị không được để trống.');
+    }
+    final user = _requireUser(expectedUid);
+    await user.updateDisplayName(name);
+    // userChanges publishes the updated SDK profile; do not synthesize a session.
   });
 
   User _requireUser(String expectedUid) {

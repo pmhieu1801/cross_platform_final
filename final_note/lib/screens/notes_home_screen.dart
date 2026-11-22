@@ -26,6 +26,7 @@ class NotesHomeScreen extends StatefulWidget {
     this.authError,
     this.onLogout,
     this.onChangePassword,
+    this.onProfile,
     this.onSaveNote,
     this.onDeleteNote,
     this.onTogglePin,
@@ -55,6 +56,7 @@ class NotesHomeScreen extends StatefulWidget {
   final String? authError;
   final VoidCallback? onLogout;
   final VoidCallback? onChangePassword;
+  final VoidCallback? onProfile;
 
   /// External persistence callbacks. When omitted, mutations update local state.
   final Future<Note?> Function(Note note, {required bool isAutosave})?
@@ -785,6 +787,13 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               tooltip: 'Change password',
               onPressed: widget.authBusy ? null : widget.onChangePassword,
               icon: const Icon(Icons.lock_reset_rounded),
+            ),
+          if (widget.onProfile != null)
+            IconButton(
+              key: const Key('open-profile'),
+              tooltip: 'Profile',
+              onPressed: widget.authBusy ? null : widget.onProfile,
+              icon: const Icon(Icons.person_outline_rounded),
             ),
           if (widget.onLogout != null)
             OutlinedButton.icon(
