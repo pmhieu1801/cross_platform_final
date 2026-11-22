@@ -71,7 +71,39 @@ class FirebaseAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> signOut() => _translate(_auth.signOut);
+  Future<void> signOut({String? expectedUid}) => _translate(() async {
+    if (expectedUid != null) _requireUser(expectedUid);
+    await _auth.signOut();
+  });
+
+  @override
+  Future<void> changePassword({
+    required String expectedUid,
+    required String currentPassword,
+    required String newPassword,
+  }) => _translate(() async {
+    final user = _requireUser(expectedUid);
+    final email = user.email;
+    if (email == null) {
+      throw const AuthFailure('Phiên tài khoản không có email đăng nhập.');
+    }
+    final credential = EmailAuthProvider.credential(
+      email: email,
+      password: currentPassword,
+    );
+    try {
+      await user.reauthenticateWithCredential(credential);
+    } on FirebaseAuthException catch (error) {
+      if (error.code == 'wrong-password' ||
+          error.code == 'invalid-credential') {
+        throw const AuthFailure('Mật khẩu hiện tại không đúng.');
+      }
+      rethrow;
+    }
+    // Reauthentication can finish after the app has switched to another account.
+    _requireUser(expectedUid);
+    await user.updatePassword(newPassword);
+  });
 
   @override
   Future<void> requestPasswordReset(String email) => _translate(() async {

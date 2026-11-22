@@ -13,6 +13,7 @@ class LoginScreen extends StatefulWidget {
     this.onForgotPassword,
     this.isLoading = false,
     this.error,
+    this.notice,
   });
 
   final Future<void> Function(String email, String password)? onSubmit;
@@ -20,6 +21,7 @@ class LoginScreen extends StatefulWidget {
   final VoidCallback? onForgotPassword;
   final bool isLoading;
   final String? error;
+  final String? notice;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -259,6 +261,10 @@ class _LoginScreenState extends State<LoginScreen> {
               validator: Validators.requiredPassword,
             ),
             const SizedBox(height: AppSpacing.xl),
+            if (widget.notice != null) ...[
+              Semantics(liveRegion: true, child: Text(widget.notice!)),
+              const SizedBox(height: AppSpacing.md),
+            ],
             if (widget.error != null) ...[
               Semantics(
                 liveRegion: true,

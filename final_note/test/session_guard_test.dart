@@ -12,6 +12,7 @@ void main() {
       for (final path in [
         '/home',
         '/notes/secret',
+        AppRoutes.changePassword,
         '/login',
         '/register',
         '/',
@@ -29,6 +30,7 @@ void main() {
       for (final path in [
         '/home',
         '/notes/secret',
+        AppRoutes.changePassword,
         '/unknown',
         '/session',
         '/',

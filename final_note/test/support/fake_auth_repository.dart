@@ -24,6 +24,14 @@ class FakeAuthRepository implements AuthRepository {
   int registerCalls = 0;
   int signOutCalls = 0;
   int passwordResetCalls = 0;
+  int changePasswordCalls = 0;
+  Completer<void>? changePending;
+  AuthFailure? changeFailure;
+  AuthFailure? signOutFailure;
+  bool emitSignOut = true;
+  String? changeUid;
+  String? receivedCurrentPassword;
+  String? receivedNewPassword;
   String? receivedEmail;
   String? receivedName;
   int verificationCalls = 0;
@@ -85,10 +93,25 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> signOut() async {
+  Future<void> signOut({String? expectedUid}) async {
     signOutCalls++;
     await _complete();
-    events.add(null);
+    if (signOutFailure != null) throw signOutFailure!;
+    if (emitSignOut) events.add(null);
+  }
+
+  @override
+  Future<void> changePassword({
+    required String expectedUid,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    changePasswordCalls++;
+    changeUid = expectedUid;
+    receivedCurrentPassword = currentPassword;
+    receivedNewPassword = newPassword;
+    if (changePending != null) await changePending!.future;
+    if (changeFailure != null) throw changeFailure!;
   }
 
   @override

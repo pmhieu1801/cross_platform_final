@@ -19,6 +19,8 @@ class GradientButton extends StatefulWidget {
   final VoidCallback? onPressed;
   final IconData? icon;
   final bool loading;
+
+  /// Minimum height; wrapped accessibility text can expand the button.
   final double height;
 
   @override
@@ -52,7 +54,7 @@ class _GradientButtonState extends State<GradientButton> {
         child: AnimatedContainer(
           duration: AppDurations.normal,
           curve: AppCurves.standard,
-          height: widget.height,
+          constraints: BoxConstraints(minHeight: widget.height),
           decoration: BoxDecoration(
             gradient: _enabled || widget.loading ? tokens.brandGradient : null,
             color: _enabled || widget.loading
@@ -79,41 +81,47 @@ class _GradientButtonState extends State<GradientButton> {
                   : SystemMouseCursors.basic,
               splashColor: Colors.white.withValues(alpha: 0.12),
               highlightColor: Colors.white.withValues(alpha: 0.06),
-              child: Center(
-                child: AnimatedSwitcher(
-                  duration: AppDurations.fast,
-                  child: widget.loading
-                      ? SizedBox(
-                          key: const ValueKey('loading'),
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            color: foreground,
-                            semanticsLabel: 'Loading',
-                          ),
-                        )
-                      : Row(
-                          key: const ValueKey('label'),
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              widget.label,
-                              style: context.text.labelLarge?.copyWith(
-                                color: foreground,
-                                fontWeight: FontWeight.w700,
-                              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: AppDurations.fast,
+                    child: widget.loading
+                        ? SizedBox(
+                            key: const ValueKey('loading'),
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.4,
+                              color: foreground,
+                              semanticsLabel: 'Loading',
                             ),
-                            if (widget.icon != null) ...[
-                              const SizedBox(width: AppSpacing.sm),
-                              Icon(
-                                widget.icon,
-                                size: AppSizes.iconSm,
-                                color: foreground,
+                          )
+                        : Row(
+                            key: const ValueKey('label'),
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  widget.label,
+                                  textAlign: TextAlign.center,
+                                  style: context.text.labelLarge?.copyWith(
+                                    color: foreground,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
                               ),
+                              if (widget.icon != null) ...[
+                                const SizedBox(width: AppSpacing.sm),
+                                Icon(
+                                  widget.icon,
+                                  size: AppSizes.iconSm,
+                                  color: foreground,
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
+                          ),
+                  ),
                 ),
               ),
             ),

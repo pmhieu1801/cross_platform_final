@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../models/note.dart';
+import '../../routing/session_guard.dart';
 import '../../screens/notes_home_screen.dart';
 import '../auth/application/auth_providers.dart';
+import '../auth/application/change_password_controller.dart';
 import '../auth/presentation/verification_banner.dart';
 import '../notes/application/note_providers.dart';
 
@@ -42,9 +45,10 @@ class HomeScreen extends ConsumerWidget {
       verificationBanner: !user.emailVerified
           ? VerificationBanner(key: ValueKey(user.uid), uid: user.uid)
           : null,
-      authBusy: authAction.busy,
+      authBusy: authAction.busy || ref.watch(changePasswordProvider).busy,
       authError: authAction.error,
       onLogout: ref.read(authActionsProvider.notifier).signOut,
+      onChangePassword: () => context.go(AppRoutes.changePassword),
       notes: notes,
       labels: labels,
       isLoading: isLoading,

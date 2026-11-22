@@ -79,6 +79,18 @@ Linh mở email bằng trình duyệt. Trang HTTPS của Firebase kiểm link m�
 
 Đọc theo đường đi `lib/screens/login_screen.dart` → `lib/features/auth/presentation/auth_form.dart` → `lib/routing/session_guard.dart` và `app_router.dart` → `forgot_password_screen.dart` → `password_reset_controller.dart` → `firebase_auth_repository.dart`.
 
+## 10. Đổi mật khẩu W2-03
+
+Ví dụ Linh đang ở Notes, bấm biểu tượng **Change password** và nhập mật khẩu hiện tại cùng hai lần mật khẩu mới. Router chỉ cho phiên signed-in vào `/change-password`; key UID ngăn form A được dùng lại cho B. Form kiểm mật khẩu mới tối thiểu 8 ký tự theo Validators hiện có, confirmation phải khớp, và giữ nguyên khoảng trắng trong mật khẩu.
+
+Screen gọi ChangePasswordController, đặt busy rồi dùng repository reauthenticate bằng email từ Firebase và mật khẩu hiện tại. Sai mật khẩu hiện tại dừng trước update. Reauthentication là yêu cầu xác nhận lại danh tính cho thao tác nhạy cảm, khác với việc chỉ thấy app đang đăng nhập. Firebase vẫn có quyền từ chối mật khẩu mới theo policy backend.
+
+Update thành công chưa phải toàn bộ luồng hoàn tất: controller yêu cầu signOut tại client này, đợi SDK stream phát null để guard đóng private route. Login hiện lời nhắc dùng mật khẩu mới; app không tự đăng nhập lại. Nếu bước signOut lỗi sau update, UI nói rõ mật khẩu đã đổi và chỉ thử lại signOut, không yêu cầu nhập lại mật khẩu cũ. Không suy từ client signOut rằng mọi thiết bị khác đã bị thu hồi phiên.
+
+Provider chỉ giữ phase, UID và thông báo an toàn. Mật khẩu được xóa khỏi form sau request hoặc dispose. Khi lease A bị đóng, generation làm mất hiệu lực callback chậm kể cả khi cùng UID A đăng nhập lại. Controller watch lease và trả state từ build, thay vì ghi state trong listener bị kích hoạt lúc Home đang build; regression đăng ký kiểm đúng trường hợp này.
+
+Đọc theo luồng: `lib/features/auth/presentation/change_password_screen.dart` → `application/change_password_controller.dart` → `domain/auth_repository.dart` → `data/firebase_auth_repository.dart`. Điểm mở form ở `lib/features/home/home_screen.dart`, route ở `lib/routing/app_router.dart`. `test/change_password_test.dart` kiểm form/state/races bằng fake; `test/firebase_change_password_repository_test.dart` kiểm thứ tự SDK và UID bằng stub. `integration_test/change_password_real_test.dart` dùng SDK/Firebase thật với app Firebase thứ hai và account mới chỉ thuộc lượt test, không đăng xuất tài khoản đang có của owner. Evidence của test này không thay bằng chứng thao tác giao diện Web/Android.
+
 ## Tự kiểm tra trước vấn đáp
 
 Cập nhật tích hợp 18/11/2026: `/home` đi qua HomeScreen trước khi dựng NotesHomeScreen. HomeScreen đọc phiên Firebase, cấp UID/banner/logout và nối các provider Notes theo account. Nếu router dựng NotesHomeScreen trực tiếp, widget nhận thiếu user và callbacks, nên đăng nhập đúng vẫn thiếu UID, banner và đăng xuất. Đổi lại điểm nối này làm 12 ca Auth/Verification lỗi trước đó qua trở lại, full suite đạt 68 tests. Phần lưu Notes theo UID thuộc repository nhóm đã có; dữ liệu key chung cũ cần M2 chốt cách gán owner khi chuyển store.

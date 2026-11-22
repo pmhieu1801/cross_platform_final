@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/auth/application/auth_providers.dart';
 import '../features/auth/presentation/auth_form.dart';
+import '../features/auth/presentation/change_password_screen.dart';
 import '../features/auth/presentation/forgot_password_screen.dart';
 import '../features/auth/presentation/session_screen.dart';
 import '../features/home/home_screen.dart';
@@ -43,6 +44,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(path: AppRoutes.home, builder: (_, _) => const HomeScreen()),
+      GoRoute(
+        path: AppRoutes.changePassword,
+        builder: (_, _) => Consumer(
+          builder: (context, ref, child) {
+            final uid = ref.watch(authenticatedUidProvider);
+            return uid == null
+                ? const SessionScreen()
+                : ChangePasswordScreen(key: ValueKey(uid), uid: uid);
+          },
+        ),
+      ),
     ],
     errorBuilder: (_, _) =>
         const Scaffold(body: Center(child: Text('Không tìm thấy trang.'))),

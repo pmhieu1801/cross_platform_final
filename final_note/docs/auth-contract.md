@@ -9,7 +9,7 @@ Source: `lib/features/auth/domain/auth_repository.dart`, `application/auth_provi
 | Thành phần | Contract |
 | --- | --- |
 | AuthUser | uid:String, email:String?, displayName:String?, emailVerified:bool; snapshot bất biến, không có password/token |
-| AuthRepository | watchSession(), signIn(email,password), register(email,displayName,password) → RegistrationResult, signOut(), sendVerificationEmail(expectedUid), refreshCurrentUser(expectedUid), requestPasswordReset(email) |
+| AuthRepository | watchSession(), signIn(email,password), register(email,displayName,password) → RegistrationResult, signOut({expectedUid}), sendVerificationEmail(expectedUid), refreshCurrentUser(expectedUid), requestPasswordReset(email), changePassword(expectedUid,currentPassword,newPassword) |
 | RegistrationResult (W2-01) | uid, verificationSent, warning; account đã tồn tại dù bước tên/mail thất bại; không chứa password/token/action code |
 | verificationActionsProvider(uid) (W2-01) | sending/refreshing/retryAt/message/error; resend()/refresh(); feedback theo UID và lease, cooldown gửi lại 60 giây trong tiến trình |
 | authSessionProvider | AsyncValue<AuthUser?>: loading chưa biết phiên; data(null) signed out; data(user) signed in; error không xác định được phiên |
@@ -50,6 +50,16 @@ Trang Firebase HTTPS nhận mã một lần, kiểm tra link và đặt mật kh
 Cập nhật 18/11/2026: router `/home` dựng HomeScreen. Adapter đọc phiên Auth và nối UID, VerificationBanner, logout, Notes callbacks vào NotesHomeScreen. Repository lưu Notes theo UID do nhóm triển khai ở PR #33 tiếp tục được dùng qua provider. Dữ liệu Notes từng lưu dưới key chung `noteflow_notes_v1` cần M2 chốt owner và cách chuyển sang store theo tài khoản.
 
 ## Logout và ranh giới tài khoản
+
+### Đổi mật khẩu W2-03
+
+`/change-password` là private route, nhận UID từ Auth và tạo form mới bằng key UID khi đổi tài khoản. Ba mật khẩu chỉ nằm trong controller của field và tham số request, không nằm trong provider state, preferences hoặc log. Form validate bằng Validators chung, không trim mật khẩu; field được xóa khi request kết thúc hoặc widget bị hủy.
+
+Luồng: ChangePasswordScreen → ChangePasswordController → AuthRepository.changePassword → Firebase `reauthenticateWithCredential` → `updatePassword`. Adapter kiểm `expectedUid` trước reauthentication và trước update; controller giữ account lease/generation để callback của phiên cũ không đăng xuất hoặc báo kết quả cho phiên mới. Provider watch lease và trả trạng thái mới từ `build`, tránh ghi provider trong lúc widget đang build khi UID được cập nhật muộn.
+
+Sau update thành công, controller gọi `signOut(expectedUid: uid)`. Tham số optional giữ tương thích với các caller `signOut()` cũ, đồng thời không cho request đổi mật khẩu A đăng xuất B. Chỉ session stream phát signed-out mới kết thúc luồng và chuyển Login, nơi nhắc đăng nhập thủ công bằng mật khẩu mới. Client signOut này không bảo đảm thu hồi mọi phiên trên thiết bị khác.
+
+Nếu update đã thành công nhưng signOut lỗi, state `signOutFailed` báo rõ mật khẩu mới đã có hiệu lực, ẩn form và cho thử lại riêng signOut. Không chạy update lần nữa. Chặn gửi lặp và logout từ home khi thao tác đổi mật khẩu đang chạy. Xem [evidence W2-03](m1-week2-change-password.md) và [Firebase manage users](https://firebase.google.com/docs/auth/flutter/manage-users).
 
 - UI gọi `authActionsProvider.notifier.signOut()`, repository gọi Firebase.signOut(). Khi thất bại, báo lỗi và giữ session đúng SDK; không giả thành công.
 - Khi stream phát null, guard đóng private UI ngay; Auth action feedback được xóa, form cũ dispose các TextEditingController chứa password.
