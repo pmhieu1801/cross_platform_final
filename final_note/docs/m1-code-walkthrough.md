@@ -103,6 +103,8 @@ Linh bấm **Edit display name**, nhập `  Linh Nguyễn  ` rồi Save. Form/co
 
 ## Tự kiểm tra trước vấn đáp
 
+W2-05 hiện chỉ chuẩn bị interface và validation, vì owner giữ Spark và chưa chọn storage. Đọc `lib/features/auth/domain/avatar_repository.dart` → `application/avatar_image_validator.dart` → `test/avatar_image_validator_test.dart`. Validator copy bytes trước await, nhận dạng JPEG/PNG thay vì tin đuôi file, đọc kích thước encoded trước khi decode frame và luôn dispose codec/image/buffer. Kết quả là payload immutable, chưa phải avatar đã upload. Backend vẫn phải xác minh quyền/file độc lập. Receipt dùng storageKey do backend cấp để cleanup; không xóa bằng cách đoán từ một photoURL. Xem báo cáo W2-05 để phân biệt phần đã test và upload đang bị chặn.
+
 Cập nhật tích hợp 18/11/2026: `/home` đi qua HomeScreen trước khi dựng NotesHomeScreen. HomeScreen đọc phiên Firebase, cấp UID/banner/logout và nối các provider Notes theo account. Nếu router dựng NotesHomeScreen trực tiếp, widget nhận thiếu user và callbacks, nên đăng nhập đúng vẫn thiếu UID, banner và đăng xuất. Đổi lại điểm nối này làm 12 ca Auth/Verification lỗi trước đó qua trở lại, full suite đạt 68 tests. Phần lưu Notes theo UID thuộc repository nhóm đã có; dữ liệu key chung cũ cần M2 chốt cách gán owner khi chuyển store.
 
 1. Vì sao loading không được coi là signed-out?

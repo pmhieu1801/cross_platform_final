@@ -61,6 +61,12 @@ API/cách dùng mới là implementation M1 chờ nhóm review, không phải ow
 
 ## Logout và ranh giới tài khoản
 
+### Chuẩn bị avatar W2-05, chưa có storage implementation
+
+Owner chọn giữ Spark ngày 22/11/2026, Console xác nhận Storage yêu cầu Blaze. `AvatarRepository` trong domain chỉ định upload/deleteUploaded với expectedUid và receipt ownerUid/storageKey/HTTPS photoUrl. Chưa có provider production, picker, Auth photoURL setter hoặc schema/rules mới. `AvatarImageValidator` chuẩn bị JPEG/PNG tối đa 2 MiB, mỗi chiều tối đa 4096, kiểm MIME/chữ ký/dimension và decode thật; các số này là lựa chọn triển khai chờ review. Bytes được copy và giữ immutable. Client validation không thay enforcement backend.
+
+Contract tương lai: upload chưa công bố ảnh; metadata Auth thành công và SDK stream mới đổi ảnh hiển thị; metadata lỗi giữ ảnh cũ, cleanup object bằng receipt, không suy target xóa từ URL hoặc dùng credentials B cho thao tác A. Backend/read policy/path schema vẫn cần M3/owner chốt. Xem [trạng thái/blocker W2-05](m1-week2-avatar-preparation.md); không claim upload/persistence hoặc cross-user denial đã hoạt động.
+
 ### Đổi mật khẩu W2-03
 
 `/change-password` là private route, nhận UID từ Auth và tạo form mới bằng key UID khi đổi tài khoản. Ba mật khẩu chỉ nằm trong controller của field và tham số request, không nằm trong provider state, preferences hoặc log. Form validate bằng Validators chung, không trim mật khẩu; field được xóa khi request kết thúc hoặc widget bị hủy.

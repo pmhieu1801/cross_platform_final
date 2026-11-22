@@ -84,6 +84,8 @@ Outputs ignored: `build/web/`, `build/app/outputs/flutter-apk/app-debug.apk`. AP
 
 ## Bàn giao
 
+- [Chuẩn bị avatar W2-05 — upload đang chờ storage](docs/m1-week2-avatar-preparation.md)
+
 - [Hồ sơ W2-04: luồng, test và giới hạn nghiệm thu](docs/m1-week2-profile.md)
 - [Đổi mật khẩu W2-03: luồng, test và giới hạn nghiệm thu](docs/m1-week2-change-password.md)
 - [Khôi phục mật khẩu W2-02](docs/m1-week2-password-reset.md)
