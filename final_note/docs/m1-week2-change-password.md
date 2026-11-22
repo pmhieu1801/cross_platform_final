@@ -26,6 +26,7 @@ File chính: `lib/features/auth/application/change_password_controller.dart`, `p
 ## Kết quả kiểm tra
 
 - Full unit/widget suite sau sửa regression đăng ký: **83/83 PASS**. Regression là provider listener ghi state trong lúc widget build; sửa bằng dependency watch và trả state từ build, không bỏ assertion cũ.
+- Sau điều chỉnh padding/vùng bấm của nút, full suite chạy lại vẫn **83/83 PASS**. Format trong phạm vi task: **22 file, 0 thay đổi**; analyze cuối không có issue.
 - `flutter analyze --no-pub`: **PASS**, không có issue.
 - Web release build với `config/firebase.web.json`: **PASS**. Panel debug có lỗi disposed EngineFlutterView sau hot restart; chuyển sang release server để nghiệm thu, không coi build là runtime PASS.
 - Android real Firebase SDK integration: **1/1 PASS**, 21 giây cho test và cleanup. Dùng production repository/controller với Firebase app thứ hai; account email example.test mới, password ngẫu nhiên chỉ trong RAM. Kiểm wrong-current, original còn đúng sau lần sai, đổi thành công, signed-out thật, old-password bị từ chối đúng lỗi credential, new-password login cùng UID. Cleanup xóa đúng UID account vừa tạo và Firebase app phụ; không signOut/xóa tài khoản có sẵn của owner. Test không kiểm email delivery.
@@ -51,6 +52,8 @@ Owner tự nhập password trên Web/Android: đăng nhập account test → Cha
 ## Bàn giao và phần còn lại
 
 Chờ M2 review UI/router/shared button và M3 review Firebase reauthentication, scoped signOut, lease/session boundary. Không tự approve/merge. Tracker R07 cần evidence và peer signoff trước Done.
+
+Code đã push trong commit `45cd385`; [PR #35](https://github.com/pmhieu1801/cross_platform_final/pull/35) đang draft, chờ owner QA giao diện và peer review. Không claim email owner đã được đổi mật khẩu từ test SDK disposable.
 
 W2-02 Android reset còn thiếu xác nhận owner từ lượt trước; PR #34 merge không tự chứng minh đã nghiệm thu. W2-01 Android mở link trên trình duyệt máy tính, refresh và reopen app Android đã kiểm; handler Chrome emulator chưa chạy. Đây là giới hạn carry-over, không gán thành PASS của W2-03.
 
