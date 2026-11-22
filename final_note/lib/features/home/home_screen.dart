@@ -9,6 +9,7 @@ import '../auth/application/auth_providers.dart';
 import '../auth/application/change_password_controller.dart';
 import '../auth/presentation/verification_banner.dart';
 import '../notes/application/note_providers.dart';
+import '../preferences/application/preferences_providers.dart';
 
 /// Account-scoped Notes destination for `/home`.
 class HomeScreen extends ConsumerWidget {
@@ -29,6 +30,14 @@ class HomeScreen extends ConsumerWidget {
     final notesAsync = ref.watch(accountNotesStreamProvider);
     final labelsAsync = ref.watch(accountLabelsStreamProvider);
     final noteActions = ref.read(noteActionsProvider.notifier);
+    final preferences = ref.watch(effectivePreferencesProvider);
+    final preferencesSnapshot = ref.watch(accountPreferencesProvider);
+    final preferencesState =
+        !preferencesSnapshot.isLoading &&
+            !preferencesSnapshot.hasError &&
+            preferencesSnapshot.asData?.value.uid == user.uid
+        ? preferencesSnapshot.asData!.value
+        : null;
 
     final isLoading = notesAsync.isLoading;
     final hasError = notesAsync.hasError;
@@ -46,10 +55,22 @@ class HomeScreen extends ConsumerWidget {
           ? VerificationBanner(key: ValueKey(user.uid), uid: user.uid)
           : null,
       authBusy: authAction.busy || ref.watch(changePasswordProvider).busy,
-      authError: authAction.error,
+      authError:
+          authAction.error ??
+          (preferencesSnapshot.hasError && !preferencesSnapshot.isLoading
+              ? 'Không thể tải cài đặt. Mở Settings để thử lại.'
+              : null),
       onLogout: ref.read(authActionsProvider.notifier).signOut,
       onChangePassword: () => context.go(AppRoutes.changePassword),
       onProfile: () => context.go(AppRoutes.profile),
+      onPreferences: () => context.go(AppRoutes.preferences),
+      viewMode: preferences.notesViewMode,
+      viewModeEnabled: preferencesState != null && !preferencesState.saving,
+      preferencesError: preferencesState?.error,
+      onViewModeChanged: ref
+          .read(accountPreferencesProvider.notifier)
+          .setViewMode,
+      noteFontScale: preferences.noteFontScale,
       notes: notes,
       labels: labels,
       isLoading: isLoading,
