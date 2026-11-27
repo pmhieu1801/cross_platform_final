@@ -424,7 +424,18 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
           ),
         );
       }
-      return AttachmentPickOutcome.picked(candidates);
+      final confirmedCandidates = <PickedAttachmentCandidate>[];
+      for (final candidate in candidates) {
+        if (!mounted) return const AttachmentPickOutcome.cancelled();
+        final confirmed = await _confirmAndRenamePickedCandidate(candidate);
+        if (confirmed != null) {
+          confirmedCandidates.add(confirmed);
+        }
+      }
+      if (confirmedCandidates.isEmpty) {
+        return const AttachmentPickOutcome.cancelled();
+      }
+      return AttachmentPickOutcome.picked(confirmedCandidates);
     } on PlatformException catch (error) {
       final code = error.code.toLowerCase();
       if (code.contains('permission') || code.contains('denied')) {
@@ -438,6 +449,104 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     } catch (_) {
       return _showAttachmentPickerDialog(kind);
     }
+  }
+
+  Future<PickedAttachmentCandidate?> _confirmAndRenamePickedCandidate(
+    PickedAttachmentCandidate candidate,
+  ) async {
+    final ext = NoteAttachmentValidator.extractExtension(candidate.name);
+    final baseName = ext.isNotEmpty && candidate.name.length > ext.length + 1
+        ? candidate.name.substring(0, candidate.name.length - ext.length - 1)
+        : candidate.name;
+    final nameController = TextEditingController(text: baseName);
+
+    final confirmed = await showDialog<PickedAttachmentCandidate>(
+      context: context,
+      builder: (dialogContext) {
+        final text = dialogContext.text;
+        return AlertDialog(
+          key: const Key('confirm-attachment-name-dialog'),
+          title: Text('Attach ${candidate.kind.label.toLowerCase()}'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (candidate.kind == NoteAttachmentKind.image &&
+                      candidate.bytes != null &&
+                      candidate.bytes!.isNotEmpty) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        child: Image.memory(
+                          candidate.bytes!,
+                          width: double.infinity,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                  Text(
+                    'Size: ${NoteAttachmentValidator.formatBytes(candidate.sizeBytes)}',
+                    style: text.bodySmall,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    key: const Key('confirm-attachment-name-input'),
+                    controller: nameController,
+                    autofocus: true,
+                    textInputAction: TextInputAction.done,
+                    decoration: InputDecoration(
+                      labelText: 'File name',
+                      suffixText: ext.isNotEmpty ? '.$ext' : null,
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const Key('confirm-attachment-cancel'),
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              key: const Key('confirm-attachment-submit'),
+              onPressed: () {
+                final rawBase = nameController.text.trim();
+                final finalBase = rawBase.isEmpty ? baseName : rawBase;
+                final finalName =
+                    ext.isNotEmpty && !finalBase.toLowerCase().endsWith('.$ext')
+                    ? '$finalBase.$ext'
+                    : finalBase;
+                Navigator.of(dialogContext).pop(
+                  PickedAttachmentCandidate(
+                    name: finalName,
+                    kind: candidate.kind,
+                    sizeBytes: candidate.sizeBytes,
+                    localPath: 'device://$finalName',
+                    mimeType: candidate.mimeType,
+                    bytes: candidate.bytes,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.attach_file_rounded, size: 18),
+              label: const Text('Attach'),
+            ),
+          ],
+        );
+      },
+    );
+
+    nameController.dispose();
+    return confirmed;
   }
 
   Future<AttachmentPickOutcome> _showAttachmentPickerDialog(
@@ -1757,16 +1866,24 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                         ] else
                           Icon(icon, size: 16, color: inkColor),
                         const SizedBox(width: AppSpacing.xs),
-                        Text(
-                          attachment.name,
-                          style: text.labelSmall?.copyWith(
-                            color: inkColor,
-                            fontWeight: FontWeight.w700,
+                        Flexible(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 165),
+                            child: Text(
+                              attachment.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.labelSmall?.copyWith(
+                                color: inkColor,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: AppSpacing.xs),
                         Text(
                           '${attachment.kind.label} • ${NoteAttachmentValidator.formatBytes(attachment.sizeBytes)}',
+                          maxLines: 1,
                           style: text.labelSmall?.copyWith(color: subInkColor),
                         ),
                         IconButton(
