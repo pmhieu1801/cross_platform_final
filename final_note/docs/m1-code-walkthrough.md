@@ -103,6 +103,12 @@ Linh bấm **Edit display name**, nhập `  Linh Nguyễn  ` rồi Save. Form/co
 
 ## Tự kiểm tra trước vấn đáp
 
+W2-06: Linh chọn Light/130%/List tại Settings. Draft chưa đổi app; Save gọi AccountPreferences → LocalPreferencesRepository → shared_preferences dưới key UID Linh. Chỉ write thành công mới publish cho MaterialApp và Notes. Logout chuyển về defaults ngay, B tải key B; Linh quay lại đọc đúng key cũ. Đó là local persistence, không phải cloud sync Web/Android. Dữ liệu hỏng có warning/default và chỉ explicit Save mới ghi đè.
+
+Đọc `lib/features/preferences/domain/user_preferences.dart` → `data/local_preferences_repository.dart` → `application/preferences_providers.dart` → `presentation/preferences_screen.dart` → `lib/app.dart` và Home adapter. Notes chỉ nhận props cho view/font/error, không đổi repository/autosave. Projection effective chặn stale AsyncValue; controller không đọc ngược projection phụ thuộc chính mình khi đổi Grid/List, mà dùng current state rồi đi qua save guard. FIFO local giữ thứ tự khi cùng UID đăng nhập lại lúc write cũ chưa xong. `integration_test/preferences_real_test.dart` có seed/verify hai tiến trình và cleanup chỉ account/keys do lượt đó tạo; xem báo cáo W2-06 cho phạm vi bằng chứng.
+
+W2-05 hiện chỉ chuẩn bị interface và validation, vì owner giữ Spark và chưa chọn storage. Đọc `lib/features/auth/domain/avatar_repository.dart` → `application/avatar_image_validator.dart` → `test/avatar_image_validator_test.dart`. Validator copy bytes trước await, nhận dạng JPEG/PNG thay vì tin đuôi file, đọc kích thước encoded trước khi decode frame và luôn dispose codec/image/buffer. Kết quả là payload immutable, chưa phải avatar đã upload. Backend vẫn phải xác minh quyền/file độc lập. Receipt dùng storageKey do backend cấp để cleanup; không xóa bằng cách đoán từ một photoURL. Xem báo cáo W2-05 để phân biệt phần đã test và upload đang bị chặn.
+
 Cập nhật tích hợp 18/11/2026: `/home` đi qua HomeScreen trước khi dựng NotesHomeScreen. HomeScreen đọc phiên Firebase, cấp UID/banner/logout và nối các provider Notes theo account. Nếu router dựng NotesHomeScreen trực tiếp, widget nhận thiếu user và callbacks, nên đăng nhập đúng vẫn thiếu UID, banner và đăng xuất. Đổi lại điểm nối này làm 12 ca Auth/Verification lỗi trước đó qua trở lại, full suite đạt 68 tests. Phần lưu Notes theo UID thuộc repository nhóm đã có; dữ liệu key chung cũ cần M2 chốt cách gán owner khi chuyển store.
 
 1. Vì sao loading không được coi là signed-out?
