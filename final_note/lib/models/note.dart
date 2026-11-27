@@ -67,6 +67,8 @@ class NoteAttachment {
     this.mimeType = 'application/octet-stream',
     this.createdAt,
     this.sizeBytes = 0,
+    this.ownerUid,
+    this.previewBase64,
   });
 
   final String id;
@@ -76,6 +78,32 @@ class NoteAttachment {
   final String mimeType;
   final DateTime? createdAt;
   final int sizeBytes;
+  final String? ownerUid;
+  final String? previewBase64;
+
+  NoteAttachment copyWith({
+    String? id,
+    String? name,
+    NoteAttachmentKind? kind,
+    String? localPath,
+    String? mimeType,
+    DateTime? createdAt,
+    int? sizeBytes,
+    String? ownerUid,
+    String? previewBase64,
+  }) {
+    return NoteAttachment(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      kind: kind ?? this.kind,
+      localPath: localPath ?? this.localPath,
+      mimeType: mimeType ?? this.mimeType,
+      createdAt: createdAt ?? this.createdAt,
+      sizeBytes: sizeBytes ?? this.sizeBytes,
+      ownerUid: ownerUid ?? this.ownerUid,
+      previewBase64: previewBase64 ?? this.previewBase64,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -85,6 +113,8 @@ class NoteAttachment {
     'mimeType': mimeType,
     'createdAt': (createdAt ?? DateTime.now()).toIso8601String(),
     'sizeBytes': sizeBytes,
+    if (ownerUid != null) 'ownerUid': ownerUid,
+    if (previewBase64 != null) 'previewBase64': previewBase64,
   };
 
   factory NoteAttachment.fromJson(Map<String, dynamic> json) {
@@ -102,6 +132,8 @@ class NoteAttachment {
           ? null
           : DateTime.tryParse(json['createdAt'].toString()),
       sizeBytes: int.tryParse(json['sizeBytes']?.toString() ?? '0') ?? 0,
+      ownerUid: json['ownerUid']?.toString(),
+      previewBase64: json['previewBase64']?.toString(),
     );
   }
 
@@ -115,12 +147,23 @@ class NoteAttachment {
         other.localPath == localPath &&
         other.mimeType == mimeType &&
         other.createdAt == createdAt &&
-        other.sizeBytes == sizeBytes;
+        other.sizeBytes == sizeBytes &&
+        other.ownerUid == ownerUid &&
+        other.previewBase64 == previewBase64;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, name, kind, localPath, mimeType, createdAt, sizeBytes);
+  int get hashCode => Object.hash(
+    id,
+    name,
+    kind,
+    localPath,
+    mimeType,
+    createdAt,
+    sizeBytes,
+    ownerUid,
+    previewBase64,
+  );
 }
 
 class Note {

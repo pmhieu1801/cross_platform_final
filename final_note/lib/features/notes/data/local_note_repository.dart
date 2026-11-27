@@ -159,7 +159,19 @@ class LocalNoteRepository implements NoteRepository {
             'Local note data does not belong to the active account.',
           );
         }
-        final accountNote = note.copyWith(ownerUid: uid);
+        final scopedAttachments = <NoteAttachment>[];
+        for (final attachment in note.attachments) {
+          if (attachment.ownerUid != null && attachment.ownerUid != uid) {
+            throw const NoteFailure(
+              'Local attachment data does not belong to the active account.',
+            );
+          }
+          scopedAttachments.add(attachment.copyWith(ownerUid: uid));
+        }
+        final accountNote = note.copyWith(
+          ownerUid: uid,
+          attachments: List<NoteAttachment>.unmodifiable(scopedAttachments),
+        );
         notes.add(accountNote);
         labels.addAll(accountNote.labels);
       }
@@ -325,9 +337,20 @@ class LocalNoteRepository implements NoteRepository {
         }
       }
 
+      final scopedAttachments = <NoteAttachment>[];
+      for (final attachment in note.attachments) {
+        if (attachment.ownerUid != null && attachment.ownerUid != uid) {
+          throw const NoteFailure(
+            'Bạn không có quyền đính kèm tệp của tài khoản khác.',
+          );
+        }
+        scopedAttachments.add(attachment.copyWith(ownerUid: uid));
+      }
+
       final scoped = note.copyWith(
         ownerUid: uid,
         labels: List<String>.unmodifiable(cleanedLabels),
+        attachments: List<NoteAttachment>.unmodifiable(scopedAttachments),
         syncStatus: NoteSyncStatus.pending,
       );
       final index = bucket.indexWhere((existing) => existing.id == scoped.id);
