@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../features/auth/domain/auth_repository.dart';
@@ -6,12 +9,15 @@ import '../utils/validators.dart';
 import 'password_strength_bar.dart';
 
 /// Formal account settings dialog opened from the sidebar profile section.
-/// Allows viewing account identity, updating profile/email, changing password,
+/// Allows viewing account identity, updating profile/email/avatar, changing password,
 /// and signing out.
 class AccountSettingsDialog extends StatefulWidget {
   const AccountSettingsDialog({
     super.key,
     required this.user,
+    this.avatarBytes,
+    this.onPickAvatar,
+    this.onRemoveAvatar,
     this.authBusy = false,
     this.onLogout,
     this.onUpdateProfile,
@@ -19,6 +25,9 @@ class AccountSettingsDialog extends StatefulWidget {
   });
 
   final AuthUser? user;
+  final Uint8List? avatarBytes;
+  final Future<String?> Function(Uint8List bytes)? onPickAvatar;
+  final Future<void> Function()? onRemoveAvatar;
   final bool authBusy;
   final VoidCallback? onLogout;
   final Future<String?> Function(String displayName, String email)?
@@ -45,6 +54,34 @@ class _AccountSettingsDialogState extends State<AccountSettingsDialog> {
   String? _statusMessage;
   bool _isError = false;
   PasswordStrength _strength = PasswordStrength.empty;
+  late Uint8List? _localAvatarBytes = widget.avatarBytes;
+
+  Future<void> _handlePickAvatar() async {
+    if (widget.onPickAvatar == null) return;
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['png', 'jpg', 'jpeg'],
+      );
+      if (files.isEmpty) return;
+      final bytes = await files.first.readAsBytes();
+      final error = await widget.onPickAvatar!(bytes);
+      if (!mounted) return;
+      setState(() {
+        _isError = error != null;
+        if (error == null) {
+          _localAvatarBytes = bytes;
+        }
+        _statusMessage = error ?? 'Đã cập nhật ảnh đại diện.';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isError = true;
+        _statusMessage = 'Không thể mở tệp ảnh. Hãy thử lại.';
+      });
+    }
+  }
 
   @override
   void initState() {
@@ -160,13 +197,18 @@ class _AccountSettingsDialogState extends State<AccountSettingsDialog> {
               Row(
                 children: [
                   CircleAvatar(
-                    radius: 22,
+                    radius: 24,
                     backgroundColor: colors.primaryContainer,
-                    child: Icon(
-                      Icons.person_outline_rounded,
-                      color: colors.onPrimaryContainer,
-                      size: 22,
-                    ),
+                    backgroundImage: _localAvatarBytes != null
+                        ? MemoryImage(_localAvatarBytes!)
+                        : null,
+                    child: _localAvatarBytes == null
+                        ? Icon(
+                            Icons.person_outline_rounded,
+                            color: colors.onPrimaryContainer,
+                            size: 24,
+                          )
+                        : null,
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
@@ -186,6 +228,53 @@ class _AccountSettingsDialogState extends State<AccountSettingsDialog> {
                               color: tokens.textMuted,
                             ),
                           ),
+                        if (widget.onPickAvatar != null) ...[
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 6,
+                            children: [
+                              TextButton.icon(
+                                key: const Key('account-dialog-change-avatar'),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  minimumSize: const Size(0, 28),
+                                ),
+                                onPressed: _handlePickAvatar,
+                                icon: const Icon(
+                                  Icons.photo_camera_outlined,
+                                  size: 15,
+                                ),
+                                label: const Text('Đổi ảnh đại diện'),
+                              ),
+                              if (_localAvatarBytes != null &&
+                                  widget.onRemoveAvatar != null)
+                                TextButton(
+                                  key: const Key('account-dialog-reset-avatar'),
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    minimumSize: const Size(0, 28),
+                                  ),
+                                  onPressed: () async {
+                                    await widget.onRemoveAvatar!();
+                                    if (!mounted) return;
+                                    setState(() {
+                                      _localAvatarBytes = null;
+                                      _isError = false;
+                                      _statusMessage =
+                                          'Đã khôi phục ảnh đại diện mặc định.';
+                                    });
+                                  },
+                                  child: const Text('Xoá ảnh'),
+                                ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),

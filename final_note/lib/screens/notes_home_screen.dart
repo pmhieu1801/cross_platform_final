@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -29,6 +30,9 @@ class NotesHomeScreen extends StatefulWidget {
     this.errorMessage,
     this.onRetry,
     this.user,
+    this.avatarBytes,
+    this.onPickAvatar,
+    this.onRemoveAvatar,
     this.verificationBanner,
     this.authBusy = false,
     this.authError,
@@ -81,6 +85,9 @@ class NotesHomeScreen extends StatefulWidget {
 
   /// Authenticated user metadata for `/home` header & verification banner.
   final AuthUser? user;
+  final Uint8List? avatarBytes;
+  final Future<String?> Function(Uint8List bytes)? onPickAvatar;
+  final Future<void> Function()? onRemoveAvatar;
   final Widget? verificationBanner;
   final bool authBusy;
   final String? authError;
@@ -920,6 +927,9 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
       context: context,
       builder: (_) => AccountSettingsDialog(
         user: widget.user,
+        avatarBytes: widget.avatarBytes,
+        onPickAvatar: widget.onPickAvatar,
+        onRemoveAvatar: widget.onRemoveAvatar,
         authBusy: widget.authBusy,
         onLogout: widget.onLogout,
       ),
@@ -1371,11 +1381,16 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                     CircleAvatar(
                       radius: 18,
                       backgroundColor: colors.primaryContainer,
-                      child: Icon(
-                        Icons.person_outline_rounded,
-                        color: colors.onPrimaryContainer,
-                        size: 18,
-                      ),
+                      backgroundImage: widget.avatarBytes != null
+                          ? MemoryImage(widget.avatarBytes!)
+                          : null,
+                      child: widget.avatarBytes == null
+                          ? Icon(
+                              Icons.person_outline_rounded,
+                              color: colors.onPrimaryContainer,
+                              size: 18,
+                            )
+                          : null,
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(

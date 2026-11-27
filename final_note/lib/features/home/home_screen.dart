@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +9,7 @@ import '../../routing/session_guard.dart';
 import '../../screens/notes_home_screen.dart';
 import '../auth/application/auth_providers.dart';
 import '../auth/application/change_password_controller.dart';
+import '../auth/data/local_avatar_repository.dart';
 import '../auth/presentation/verification_banner.dart';
 import '../notes/application/note_providers.dart';
 import '../preferences/application/preferences_providers.dart';
@@ -55,10 +58,21 @@ class HomeScreen extends ConsumerWidget {
     final labels = (!labelsAsync.isLoading && !labelsAsync.hasError)
         ? (labelsAsync.asData?.value ?? const <String>[])
         : const <String>[];
+    final customAvatarBytes = ref
+        .watch(accountCustomAvatarProvider)
+        .asData
+        ?.value
+        ?.bytes;
 
     return NotesHomeScreen(
       key: ValueKey(account.uid),
       user: user,
+      avatarBytes: customAvatarBytes,
+      onPickAvatar: (Uint8List bytes) => ref
+          .read(accountCustomAvatarProvider.notifier)
+          .pickAndSaveAvatar(bytes: bytes),
+      onRemoveAvatar: () =>
+          ref.read(accountCustomAvatarProvider.notifier).removeAvatar(),
       verificationBanner: !user.emailVerified
           ? VerificationBanner(key: ValueKey(user.uid), uid: user.uid)
           : null,
