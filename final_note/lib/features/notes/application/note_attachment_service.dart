@@ -9,8 +9,8 @@ const int kMaxImageOrFileAttachmentBytes = 5 * 1024 * 1024;
 /// Maximum allowed size for video attachments (15 MiB).
 const int kMaxVideoAttachmentBytes = 15 * 1024 * 1024;
 
-/// Maximum inline base64 preview payload stored directly in local metadata (512 KiB).
-const int kMaxInlinePreviewBytes = 512 * 1024;
+/// Maximum inline base64 preview payload stored directly in local metadata (5 MiB).
+const int kMaxInlinePreviewBytes = kMaxImageOrFileAttachmentBytes;
 
 /// Raw file candidate returned by a platform picker or attachment dialog.
 class PickedAttachmentCandidate {

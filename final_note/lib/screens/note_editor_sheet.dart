@@ -409,9 +409,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             : (file.path ?? 'device://${file.name}');
         final sizeBytes = file.lengthSync() ?? (await file.length()) ?? 0;
         Uint8List? bytes;
-        if (kind == NoteAttachmentKind.image &&
-            sizeBytes > 0 &&
-            sizeBytes <= kMaxInlinePreviewBytes) {
+        if (sizeBytes > 0 && sizeBytes <= kMaxInlinePreviewBytes) {
           try {
             bytes = await file.readAsBytes();
           } catch (_) {}
@@ -592,6 +590,15 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
         final previewBytes = attachment.previewBase64 != null
             ? base64Decode(attachment.previewBase64!)
             : null;
+        final ext = NoteAttachmentValidator.extractExtension(attachment.name);
+        final isTextFile = const {'txt', 'md', 'csv', 'json'}.contains(ext);
+        String? textPreview;
+        if (previewBytes != null && isTextFile) {
+          try {
+            textPreview = utf8.decode(previewBytes, allowMalformed: true);
+          } catch (_) {}
+        }
+
         return AlertDialog(
           key: const Key('attachment-preview-dialog'),
           title: Row(
@@ -608,41 +615,65 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             ],
           ),
           content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (previewBytes != null &&
-                    attachment.kind == NoteAttachmentKind.image) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.memory(
-                      previewBytes,
-                      key: const Key('attachment-image-memory-preview'),
-                      height: 180,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (previewBytes != null &&
+                      attachment.kind == NoteAttachmentKind.image) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 320),
+                        child: Image.memory(
+                          previewBytes,
+                          key: const Key('attachment-image-memory-preview'),
+                          width: double.infinity,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                        ),
+                      ),
                     ),
+                    const SizedBox(height: AppSpacing.md),
+                  ] else if (textPreview != null &&
+                      textPreview.trim().isNotEmpty) ...[
+                    Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(maxHeight: 220),
+                      padding: const EdgeInsets.all(AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: dialogContext.colors.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: SingleChildScrollView(
+                        child: SelectableText(
+                          textPreview,
+                          style: text.bodySmall?.copyWith(
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                  Text(
+                    'Type: ${attachment.kind.label} (${attachment.mimeType})',
+                    style: text.bodySmall,
                   ),
-                  const SizedBox(height: AppSpacing.md),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Size: ${NoteAttachmentValidator.formatBytes(attachment.sizeBytes)}',
+                    style: text.bodySmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Location: ${attachment.localPath}',
+                    style: text.bodySmall,
+                  ),
                 ],
-                Text(
-                  'Type: ${attachment.kind.label} (${attachment.mimeType})',
-                  style: text.bodySmall,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Size: ${NoteAttachmentValidator.formatBytes(attachment.sizeBytes)}',
-                  style: text.bodySmall,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Location: ${attachment.localPath}',
-                  style: text.bodySmall,
-                ),
-              ],
+              ),
             ),
           ),
           actions: [
@@ -1589,17 +1620,24 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 const PopupMenuItem(
                   key: Key('attach-menu-image'),
                   value: NoteAttachmentKind.image,
-                  child: Text('Image'),
-                ),
-                const PopupMenuItem(
-                  key: Key('attach-menu-video'),
-                  value: NoteAttachmentKind.video,
-                  child: Text('Video'),
+                  child: Row(
+                    children: [
+                      Icon(Icons.image_outlined, size: 18),
+                      SizedBox(width: 8),
+                      Text('Image'),
+                    ],
+                  ),
                 ),
                 const PopupMenuItem(
                   key: Key('attach-menu-file'),
                   value: NoteAttachmentKind.file,
-                  child: Text('File'),
+                  child: Row(
+                    children: [
+                      Icon(Icons.insert_drive_file_outlined, size: 18),
+                      SizedBox(width: 8),
+                      Text('File'),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -1667,7 +1705,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               border: Border.all(color: inkColor.withValues(alpha: 0.14)),
             ),
             child: Text(
-              'No attachments yet. Add an image, video, or file.',
+              'No attachments yet. Add an image or file.',
               style: text.bodySmall?.copyWith(color: subInkColor),
             ),
           )
@@ -1703,7 +1741,21 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(icon, size: 16, color: inkColor),
+                        if (attachment.kind == NoteAttachmentKind.image &&
+                            attachment.previewBase64 != null) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.memory(
+                              base64Decode(attachment.previewBase64!),
+                              width: 28,
+                              height: 28,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) =>
+                                  Icon(icon, size: 16, color: inkColor),
+                            ),
+                          ),
+                        ] else
+                          Icon(icon, size: 16, color: inkColor),
                         const SizedBox(width: AppSpacing.xs),
                         Text(
                           attachment.name,
