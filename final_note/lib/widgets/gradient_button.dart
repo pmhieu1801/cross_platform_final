@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../theme/theme.dart';
 
-/// Primary call-to-action button with the brand gradient and a soft glow.
-///
-/// Supports hover/focus feedback (mouse + keyboard) and a loading state.
+/// Primary call-to-action button using a formal solid colour (no gradient,
+/// no neon glow). Supports hover/focus feedback and a loading state.
 class GradientButton extends StatefulWidget {
   const GradientButton({
     super.key,
@@ -34,7 +33,6 @@ class _GradientButtonState extends State<GradientButton> {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.tokens;
     final colors = context.colors;
     final highlighted = _enabled && (_hovered || _focused);
 
@@ -42,11 +40,15 @@ class _GradientButtonState extends State<GradientButton> {
         ? Colors.white
         : colors.onSurface.withValues(alpha: 0.38);
 
+    final backgroundColor = _enabled || widget.loading
+        ? (highlighted ? const Color(0xFF262A30) : AppColors.charcoal)
+        : colors.onSurface.withValues(alpha: 0.08);
+
     return Semantics(
       button: true,
       enabled: _enabled,
       child: AnimatedScale(
-        scale: _pressed ? 0.98 : 1,
+        scale: _pressed ? 0.99 : 1,
         duration: AppDurations.fast,
         curve: AppCurves.standard,
         child: AnimatedContainer(
@@ -54,22 +56,16 @@ class _GradientButtonState extends State<GradientButton> {
           curve: AppCurves.standard,
           height: widget.height,
           decoration: BoxDecoration(
-            gradient: _enabled || widget.loading ? tokens.brandGradient : null,
-            color: _enabled || widget.loading
-                ? null
-                : colors.onSurface.withValues(alpha: 0.08),
-            borderRadius: AppRadius.mdAll,
+            color: backgroundColor,
+            borderRadius: AppRadius.pillAll,
             border: _focused
-                ? Border.all(color: colors.onSurface, width: 2)
-                : null,
-            boxShadow: _enabled
-                ? tokens.glow(colors.primary, strength: highlighted ? 1.6 : 1)
+                ? Border.all(color: AppColors.brandRed, width: 2)
                 : null,
           ),
           child: Material(
             type: MaterialType.transparency,
             child: InkWell(
-              borderRadius: AppRadius.mdAll,
+              borderRadius: AppRadius.pillAll,
               onTap: _enabled ? widget.onPressed : null,
               onHover: (value) => setState(() => _hovered = value),
               onFocusChange: (value) => setState(() => _focused = value),

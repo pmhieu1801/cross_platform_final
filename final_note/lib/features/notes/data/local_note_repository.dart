@@ -159,7 +159,19 @@ class LocalNoteRepository implements NoteRepository {
             'Local note data does not belong to the active account.',
           );
         }
-        final accountNote = note.copyWith(ownerUid: uid);
+        final scopedAttachments = <NoteAttachment>[];
+        for (final attachment in note.attachments) {
+          if (attachment.ownerUid != null && attachment.ownerUid != uid) {
+            throw const NoteFailure(
+              'Local attachment data does not belong to the active account.',
+            );
+          }
+          scopedAttachments.add(attachment.copyWith(ownerUid: uid));
+        }
+        final accountNote = note.copyWith(
+          ownerUid: uid,
+          attachments: List<NoteAttachment>.unmodifiable(scopedAttachments),
+        );
         notes.add(accountNote);
         labels.addAll(accountNote.labels);
       }
@@ -325,9 +337,20 @@ class LocalNoteRepository implements NoteRepository {
         }
       }
 
+      final scopedAttachments = <NoteAttachment>[];
+      for (final attachment in note.attachments) {
+        if (attachment.ownerUid != null && attachment.ownerUid != uid) {
+          throw const NoteFailure(
+            'Bạn không có quyền đính kèm tệp của tài khoản khác.',
+          );
+        }
+        scopedAttachments.add(attachment.copyWith(ownerUid: uid));
+      }
+
       final scoped = note.copyWith(
         ownerUid: uid,
         labels: List<String>.unmodifiable(cleanedLabels),
+        attachments: List<NoteAttachment>.unmodifiable(scopedAttachments),
         syncStatus: NoteSyncStatus.pending,
       );
       final index = bucket.indexWhere((existing) => existing.id == scoped.id);
@@ -346,19 +369,15 @@ class LocalNoteRepository implements NoteRepository {
     String noteId,
     NoteSyncStatus status,
   ) {
-    return _change(
-      uid,
-      (bucket, _) {
-        final index = bucket.indexWhere((note) => note.id == noteId);
-        if (index == -1) {
-          throw const NoteFailure('Không tìm thấy ghi chú.');
-        }
-        final updated = bucket[index].copyWith(syncStatus: status);
-        bucket[index] = updated;
-        return updated;
-      },
-      emitLabels: false,
-    );
+    return _change(uid, (bucket, _) {
+      final index = bucket.indexWhere((note) => note.id == noteId);
+      if (index == -1) {
+        throw const NoteFailure('Không tìm thấy ghi chú.');
+      }
+      final updated = bucket[index].copyWith(syncStatus: status);
+      bucket[index] = updated;
+      return updated;
+    }, emitLabels: false);
   }
 
   @override
@@ -374,28 +393,24 @@ class LocalNoteRepository implements NoteRepository {
   @override
   Future<Note> togglePin(String uid, String noteId, {DateTime? now}) async {
     await _guardWrite();
-    return _change(
-      uid,
-      (bucket, _) {
-        final index = bucket.indexWhere((note) => note.id == noteId);
-        if (index == -1) {
-          throw const NoteFailure('Không tìm thấy ghi chú.');
-        }
-        final existing = bucket[index];
-        final pinning = !existing.isPinned;
-        final timestamp = now ?? DateTime.now();
-        final updated = existing.copyWith(
-          isPinned: pinning,
-          pinnedAt: pinning ? timestamp : null,
-          clearPinnedAt: !pinning,
-          updatedAt: timestamp,
-          syncStatus: NoteSyncStatus.pending,
-        );
-        bucket[index] = updated;
-        return updated;
-      },
-      emitLabels: false,
-    );
+    return _change(uid, (bucket, _) {
+      final index = bucket.indexWhere((note) => note.id == noteId);
+      if (index == -1) {
+        throw const NoteFailure('Không tìm thấy ghi chú.');
+      }
+      final existing = bucket[index];
+      final pinning = !existing.isPinned;
+      final timestamp = now ?? DateTime.now();
+      final updated = existing.copyWith(
+        isPinned: pinning,
+        pinnedAt: pinning ? timestamp : null,
+        clearPinnedAt: !pinning,
+        updatedAt: timestamp,
+        syncStatus: NoteSyncStatus.pending,
+      );
+      bucket[index] = updated;
+      return updated;
+    }, emitLabels: false);
   }
 
   @override

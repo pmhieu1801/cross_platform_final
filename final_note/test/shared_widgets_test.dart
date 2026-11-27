@@ -1,3 +1,4 @@
+import 'package:final_note/features/auth/domain/auth_repository.dart';
 import 'package:final_note/theme/theme.dart';
 import 'package:final_note/utils/validators.dart';
 import 'package:final_note/widgets/widgets.dart';
@@ -87,5 +88,47 @@ void main() {
       expect(find.text('Password strength'), findsOneWidget);
       expect(find.text('Good'), findsOneWidget);
     });
+
+    testWidgets(
+      'AccountSettingsDialog switches tabs, validates forms and triggers logout',
+      (tester) async {
+        var loggedOut = false;
+        const user = AuthUser(
+          uid: 'uid-test',
+          email: 'tien@example.com',
+          displayName: 'Tien',
+          emailVerified: true,
+        );
+
+        await tester.pumpWidget(
+          _wrap(
+            AccountSettingsDialog(user: user, onLogout: () => loggedOut = true),
+          ),
+        );
+
+        expect(find.text('Tien'), findsWidgets);
+        expect(
+          find.byKey(const Key('account-display-name-input')),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.text('Đổi mật khẩu'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('account-current-password-input')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('account-new-password-input')),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byKey(const Key('account-dialog-logout-button')));
+        await tester.pumpAndSettle();
+
+        expect(loggedOut, isTrue);
+      },
+    );
   });
 }

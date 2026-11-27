@@ -11,12 +11,17 @@ void main() {
       expect(AppTheme.light.brightness, Brightness.light);
     });
 
-    test('noteAccent wraps any index safely', () {
-      const tokens = NoteFlowTokens.dark;
+    test('noteAccent and noteCardFill wrap any index safely', () {
+      const tokens = NoteFlowTokens.light;
       final count = tokens.noteAccents.length;
       expect(tokens.noteAccent(0), tokens.noteAccents.first);
       expect(tokens.noteAccent(count), tokens.noteAccents.first);
       expect(tokens.noteAccent(-1), tokens.noteAccents[1]);
+      expect(tokens.noteCardFill(0), AppColors.noteCardPastels.first);
+      expect(
+        tokens.noteCardFill(AppColors.noteCardPastels.length),
+        AppColors.noteCardPastels.first,
+      );
     });
 
     test('breakpoints map widths to window sizes', () {

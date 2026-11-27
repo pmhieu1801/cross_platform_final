@@ -124,7 +124,10 @@ void main() {
     await tester.tap(find.byKey(const Key('create-note-button')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byKey(const Key('note-title-input')), 'Launch plan');
+    await tester.enterText(
+      find.byKey(const Key('note-title-input')),
+      'Launch plan',
+    );
     await tester.enterText(
       find.byKey(const Key('note-content-input')),
       'Finalize the roadmap and confirm milestones with the team.',
@@ -146,7 +149,10 @@ void main() {
     await tester.tap(find.byKey(const Key('create-note-button')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byKey(const Key('note-title-input')), 'Saved note');
+    await tester.enterText(
+      find.byKey(const Key('note-title-input')),
+      'Saved note',
+    );
     await tester.enterText(
       find.byKey(const Key('note-content-input')),
       'This should persist',

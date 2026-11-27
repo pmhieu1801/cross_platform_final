@@ -4,14 +4,8 @@ import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
 
-/// Design tokens that don't fit in Material's [ColorScheme]:
-/// brand gradient, glass surfaces, glow shadows, note accents, etc.
-///
-/// Usage:
-/// ```dart
-/// final tokens = context.tokens;
-/// Container(decoration: BoxDecoration(gradient: tokens.brandGradient));
-/// ```
+/// Design tokens for the NoteFlow formal workspace theme:
+/// solid surfaces, subtle neutral shadows, and MINO pastel note/folder tokens.
 @immutable
 class NoteFlowTokens extends ThemeExtension<NoteFlowTokens> {
   const NoteFlowTokens({
@@ -30,19 +24,19 @@ class NoteFlowTokens extends ThemeExtension<NoteFlowTokens> {
     required this.shadowColor,
   });
 
-  /// Primary call-to-action gradient (violet → indigo).
+  /// Solid-color linear gradient kept for backward compatibility (both stops identical).
   final LinearGradient brandGradient;
 
-  /// Very subtle app background gradient (adds depth behind glass panels).
+  /// Solid flat background gradient (both stops identical, no multi-color gradient).
   final LinearGradient backgroundGradient;
 
-  /// Translucent fill used for glassmorphism panels.
+  /// Solid surface fill for panels and cards.
   final Color glassFill;
 
-  /// Hairline border for glass panels and cards.
+  /// Hairline border for panels and cards.
   final Color glassBorder;
 
-  /// Backdrop blur sigma for glass panels.
+  /// Blur sigma (0 for crisp formal cards).
   final double glassBlur;
 
   final Color textMuted;
@@ -54,7 +48,7 @@ class NoteFlowTokens extends ThemeExtension<NoteFlowTokens> {
   /// Accent colours for notes, indexed by `Note.colorIndex`.
   final List<Color> noteAccents;
 
-  /// How strong coloured glows are (higher in dark mode).
+  /// Shadow opacity factor.
   final double glowOpacity;
 
   /// Neutral elevation shadow colour.
@@ -63,13 +57,17 @@ class NoteFlowTokens extends ThemeExtension<NoteFlowTokens> {
   /// Returns the accent colour for a note, wrapping safely.
   Color noteAccent(int index) => noteAccents[index.abs() % noteAccents.length];
 
-  /// Soft coloured glow used on cards, focused inputs and primary buttons.
+  /// Returns the solid pastel card background colour for a note (MINO palette).
+  Color noteCardFill(int index) =>
+      AppColors.noteCardPastels[index.abs() % AppColors.noteCardPastels.length];
+
+  /// Subtle formal neutral shadow (replaces neon colored glow).
   List<BoxShadow> glow(Color color, {double strength = 1}) => [
     BoxShadow(
-      color: color.withValues(alpha: glowOpacity * strength),
-      blurRadius: 24,
-      spreadRadius: -6,
-      offset: const Offset(0, 8),
+      color: shadowColor.withValues(alpha: (0.06 * strength).clamp(0.0, 0.16)),
+      blurRadius: 16,
+      spreadRadius: -4,
+      offset: const Offset(0, 6),
     ),
   ];
 
@@ -77,58 +75,48 @@ class NoteFlowTokens extends ThemeExtension<NoteFlowTokens> {
   List<BoxShadow> get elevation => [
     BoxShadow(
       color: shadowColor,
-      blurRadius: 32,
-      spreadRadius: -12,
-      offset: const Offset(0, 16),
+      blurRadius: 24,
+      spreadRadius: -8,
+      offset: const Offset(0, 10),
     ),
   ];
 
   static const dark = NoteFlowTokens(
-    brandGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [AppColors.violet, AppColors.indigo],
-    ),
+    brandGradient: LinearGradient(colors: [AppColors.indigo, AppColors.indigo]),
     backgroundGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF141831), AppColors.darkBackground, Color(0xFF0B0E1A)],
+      colors: [AppColors.darkBackground, AppColors.darkBackground],
     ),
-    glassFill: Color(0x14FFFFFF), // white 8%
-    glassBorder: Color(0x1FFFFFFF), // white 12%
-    glassBlur: 18,
+    glassFill: AppColors.darkSurface,
+    glassBorder: AppColors.darkBorder,
+    glassBlur: 0,
     textMuted: AppColors.darkTextMuted,
     success: AppColors.success,
     warning: AppColors.warning,
     danger: AppColors.danger,
     info: AppColors.info,
     noteAccents: AppColors.noteAccents,
-    glowOpacity: 0.35,
-    shadowColor: Color(0x66000000),
+    glowOpacity: 0.08,
+    shadowColor: Color(0x40000000),
   );
 
   static const light = NoteFlowTokens(
     brandGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [AppColors.violetDeep, AppColors.indigoDeep],
+      colors: [AppColors.violetDeep, AppColors.violetDeep],
     ),
     backgroundGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFFF7F5FF), AppColors.lightBackground, Color(0xFFEFF3FF)],
+      colors: [AppColors.lightBackground, AppColors.lightBackground],
     ),
-    glassFill: Color(0xB3FFFFFF), // white 70%
-    glassBorder: Color(0x1A14172A), // ink 10%
-    glassBlur: 18,
+    glassFill: AppColors.lightSurface,
+    glassBorder: AppColors.lightBorder,
+    glassBlur: 0,
     textMuted: AppColors.lightTextMuted,
     success: AppColors.mintDeep,
     warning: AppColors.warningDeep,
     danger: AppColors.dangerDeep,
     info: AppColors.indigoDeep,
     noteAccents: AppColors.noteAccents,
-    glowOpacity: 0.18,
-    shadowColor: Color(0x1F1B1F3B),
+    glowOpacity: 0.06,
+    shadowColor: Color(0x12111827),
   );
 
   @override
@@ -198,6 +186,6 @@ extension NoteFlowThemeContext on BuildContext {
   ColorScheme get colors => Theme.of(this).colorScheme;
   TextTheme get text => Theme.of(this).textTheme;
   NoteFlowTokens get tokens =>
-      Theme.of(this).extension<NoteFlowTokens>() ?? NoteFlowTokens.dark;
+      Theme.of(this).extension<NoteFlowTokens>() ?? NoteFlowTokens.light;
   bool get isDark => Theme.of(this).brightness == Brightness.dark;
 }

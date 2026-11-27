@@ -1,6 +1,7 @@
 /// Reusable widgets for NoteFlow.
 library;
 
+export 'account_settings_dialog.dart';
 export 'app_background.dart';
 export 'brand_badge.dart';
 export 'glass_panel.dart';

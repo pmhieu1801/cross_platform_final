@@ -25,6 +25,9 @@ class HomeScreen extends ConsumerWidget {
     final authAction = ref.watch(authActionsProvider);
     final notesAsync = ref.watch(accountNotesStreamProvider);
     final labelsAsync = ref.watch(accountLabelsStreamProvider);
+    // Keep noteActionsProvider alive while HomeScreen is mounted so async saves
+    // are never cancelled by autoDispose mid-flight.
+    ref.watch(noteActionsProvider);
     final noteActions = ref.read(noteActionsProvider.notifier);
 
     final isLoading = notesAsync.isLoading;

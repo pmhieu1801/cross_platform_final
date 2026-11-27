@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../features/auth/domain/auth_repository.dart';
@@ -81,13 +83,15 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   /// Currently open note in the desktop side-by-side editor (`null` if closed).
   Note? _activeEditorNote;
   bool _isCreatingNew = false;
+  int _editorSessionCounter = 0;
+  String _editorSessionKey = 'editor-session-0';
 
   @override
   void initState() {
     super.initState();
-    _localNotes = List<Note>.of(widget.initialNotes ?? const <Note>[]);
+    _localNotes = List<Note>.of(widget.initialNotes ?? createDemoNotes());
     _localLabelCatalog = _localNotes.expand((note) => note.labels).toSet();
-    if (widget.initialNotes == null) {
+    if (widget.initialNotes == null && widget.notes == null) {
       _loadPersistedNotes();
     }
   }
@@ -107,6 +111,10 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _persistLocalNotes() async {
+    await NoteStorage.saveNotes(_localNotes);
   }
 
   List<Note> get _allNotes => widget.notes ?? _localNotes;
@@ -169,7 +177,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         _isCreatingNew = false;
       }
     });
-    Future.microtask(() => NoteStorage.saveNotes(_localNotes));
+    await _persistLocalNotes();
     return draft;
   }
 
@@ -192,7 +200,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         _isCreatingNew = false;
       }
     });
-    Future.microtask(() => NoteStorage.saveNotes(_localNotes));
+    await _persistLocalNotes();
     return true;
   }
 
@@ -221,7 +229,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         updatedAt: now,
       );
     });
-    Future.microtask(() => NoteStorage.saveNotes(_localNotes));
+    await _persistLocalNotes();
   }
 
   Future<String?> _handleAddLabel(String name) async {
@@ -273,6 +281,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         _selectedLabel = trimmedNew;
       }
     });
+    await _persistLocalNotes();
     return null;
   }
 
@@ -299,6 +308,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         _selectedLabel = null;
       }
     });
+    await _persistLocalNotes();
     return null;
   }
 
@@ -314,9 +324,23 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
+  void _openAccountSettingsDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AccountSettingsDialog(
+        user: widget.user,
+        authBusy: widget.authBusy,
+        onLogout: widget.onLogout,
+      ),
+    );
+  }
+
   void _openEditor({Note? note, required bool isWide}) {
     if (isWide) {
       setState(() {
+        _editorSessionCounter++;
+        _editorSessionKey =
+            'editor-session-$_editorSessionCounter-${note?.id ?? 'new'}';
         _activeEditorNote = note;
         _isCreatingNew = note == null;
       });
@@ -395,9 +419,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                         ),
                         child: SingleChildScrollView(
                           child: NoteEditorPanel(
-                            key: ValueKey(
-                              _activeEditorNote?.id ?? 'new-note-panel',
-                            ),
+                            key: ValueKey(_editorSessionKey),
                             initialNote: _activeEditorNote,
                             availableLabels: _labels,
                             embedded: true,
@@ -420,6 +442,8 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           floatingActionButton: FloatingActionButton.extended(
             key: const Key('create-note-button'),
             onPressed: () => _openEditor(isWide: isWide),
+            backgroundColor: AppColors.charcoal,
+            foregroundColor: Colors.white,
             icon: const Icon(Icons.add_rounded),
             label: const Text('New note'),
           ),
@@ -473,21 +497,47 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: BrandBadge(size: 38),
+          const Padding(
+            padding: EdgeInsets.only(left: AppSpacing.xs),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: BrandBadge(size: 36),
+            ),
           ),
           const SizedBox(height: AppSpacing.xl),
+          // MINO-style "Add new" button with solid dark icon badge + 3 color dots
           GradientButton(
             key: const Key('sidebar-create-note'),
             label: 'New note',
             icon: Icons.add_rounded,
-            height: 46,
+            height: 44,
             onPressed: () => _openEditor(isWide: isWide),
           ),
-          const SizedBox(height: AppSpacing.xl),
+          const SizedBox(height: AppSpacing.md),
+          Padding(
+            padding: const EdgeInsets.only(left: AppSpacing.md),
+            child: Row(
+              children: [
+                for (final dot in const [
+                  Color(0xFFD4EDC9),
+                  Color(0xFFCCCBE6),
+                  AppColors.brandRed,
+                ])
+                  Container(
+                    width: 11,
+                    height: 11,
+                    margin: const EdgeInsets.only(right: 8),
+                    decoration: BoxDecoration(
+                      color: dot,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
           _SidebarItem(
-            icon: Icons.notes_rounded,
+            icon: Icons.calendar_today_outlined,
             label: 'All notes',
             selected: _section == _NotesSection.all && _selectedLabel == null,
             onTap: () => setState(() {
@@ -515,10 +565,10 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    'YOUR LABELS',
+                    'FOLDERS & LABELS',
                     style: text.labelSmall?.copyWith(
                       color: tokens.textMuted,
-                      letterSpacing: 1.1,
+                      letterSpacing: 1.0,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -528,7 +578,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                   tooltip: 'Manage labels',
                   onPressed: _openManageLabelsDialog,
                   visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.edit_note_rounded, size: 18),
+                  icon: const Icon(Icons.create_new_folder_outlined, size: 18),
                 ),
               ],
             ),
@@ -541,7 +591,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: AppSpacing.xxs),
                     child: _SidebarItem(
-                      icon: Icons.label_outline_rounded,
+                      icon: Icons.folder_outlined,
                       dotColor: tokens.noteAccent(i),
                       label: _labels[i],
                       selected: _selectedLabel == _labels[i],
@@ -557,43 +607,87 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             ),
           ),
           Divider(color: colors.outlineVariant),
-          const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 17,
-                backgroundColor: colors.primaryContainer,
-                child: Icon(
-                  Icons.person_outline_rounded,
-                  color: colors.onPrimaryContainer,
-                  size: 18,
+          const SizedBox(height: AppSpacing.xs),
+          Material(
+            color: Colors.transparent,
+            borderRadius: AppRadius.mdAll,
+            child: InkWell(
+              key: const Key('sidebar-profile-card'),
+              onTap: _openAccountSettingsDialog,
+              borderRadius: AppRadius.mdAll,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.xs,
+                  vertical: AppSpacing.xs,
                 ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Text(
-                      widget.user?.displayName ??
-                          widget.user?.email ??
-                          'Personal space',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: colors.primaryContainer,
+                      child: Icon(
+                        Icons.person_outline_rounded,
+                        color: colors.onPrimaryContainer,
+                        size: 18,
                       ),
                     ),
-                    Text(
-                      widget.user?.email ?? 'Your notes',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.bodySmall?.copyWith(color: tokens.textMuted),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.user?.displayName ??
+                                widget.user?.email ??
+                                'Personal space',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            widget.user?.email ?? 'Your notes',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall?.copyWith(
+                              color: tokens.textMuted,
+                            ),
+                          ),
+                          if (widget.user != null)
+                            Text(
+                              'Firebase UID: ${widget.user!.uid}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.labelSmall?.copyWith(
+                                color: tokens.textMuted,
+                                fontSize: 10,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
+                    Icon(
+                      Icons.manage_accounts_outlined,
+                      size: 18,
+                      color: tokens.textMuted,
+                    ),
+                    if (widget.onLogout != null)
+                      IconButton(
+                        key: const Key('logout'),
+                        tooltip: 'Đăng xuất',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: widget.authBusy ? null : widget.onLogout,
+                        icon: Icon(
+                          Icons.logout_rounded,
+                          size: 17,
+                          color: tokens.textMuted,
+                        ),
+                      ),
                   ],
                 ),
               ),
-            ],
+            ),
           ),
         ],
       ),
@@ -610,19 +704,20 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     final tokens = context.tokens;
     final title =
         _selectedLabel ??
-        (_section == _NotesSection.pinned ? 'Pinned notes' : 'Your notes');
+        (_section == _NotesSection.pinned ? 'Pinned notes' : 'MY NOTES');
     final subtitle = _section == _NotesSection.pinned && _selectedLabel == null
         ? 'Your most important thoughts, close at hand.'
-        : 'A calm place for everything on your mind.';
+        : 'Organized folders and notes in one clean workspace.';
 
     return Column(
       children: [
-        _buildTopHeader(context, isWide: isWide, isCompact: isCompact),
+        if (!isWide)
+          _buildTopHeader(context, isWide: isWide, isCompact: isCompact),
         Expanded(
           child: ListView(
             padding: EdgeInsets.fromLTRB(
               isCompact ? AppSpacing.lg : AppSpacing.xxl,
-              AppSpacing.md,
+              AppSpacing.lg,
               isCompact ? AppSpacing.lg : AppSpacing.xxl,
               96,
             ),
@@ -651,11 +746,12 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                         Text(
                           title,
                           style: text.headlineMedium?.copyWith(
-                            fontSize: isCompact ? 26 : 32,
+                            fontSize: isCompact ? 24 : 28,
                             fontWeight: FontWeight.w800,
+                            letterSpacing: 0.3,
                           ),
                         ),
-                        const SizedBox(height: AppSpacing.xs),
+                        const SizedBox(height: AppSpacing.xxs),
                         Text(
                           subtitle,
                           style: text.bodyMedium?.copyWith(
@@ -671,9 +767,14 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                   ],
                 ],
               ),
-              const SizedBox(height: AppSpacing.xl),
-              _buildSearchAndLayout(context),
               const SizedBox(height: AppSpacing.lg),
+              _buildSearchAndLayout(context),
+              const SizedBox(height: AppSpacing.xl),
+              // MINO-style "Recent Folders" pastel cards on desktop layout
+              if (isWide && _labels.isNotEmpty) ...[
+                _buildRecentFoldersSection(context),
+                const SizedBox(height: AppSpacing.xl),
+              ],
               _buildSectionHeading(context, notes.length),
               const SizedBox(height: AppSpacing.md),
               _buildLabelFilters(context),
@@ -698,6 +799,65 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
+  Widget _buildRecentFoldersSection(BuildContext context) {
+    final text = context.text;
+    final tokens = context.tokens;
+    final folderLabels = _labels.take(3).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              'Recent Folders',
+              style: text.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                fontSize: 19,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '${_labels.length} folders',
+              style: text.labelSmall?.copyWith(color: tokens.textMuted),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        SizedBox(
+          height: 132,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < folderLabels.length; i++) ...[
+                Expanded(
+                  child: _FolderCard(
+                    label: folderLabels[i],
+                    colorIndex: i,
+                    selected: _selectedLabel == folderLabels[i],
+                    noteCount: _allNotes
+                        .where((n) => n.labels.contains(folderLabels[i]))
+                        .length,
+                    onTap: () => setState(() {
+                      _selectedLabel = _selectedLabel == folderLabels[i]
+                          ? null
+                          : folderLabels[i];
+                    }),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+              ],
+              SizedBox(
+                width: 136,
+                child: _NewFolderActionCard(onTap: _openManageLabelsDialog),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildTopHeader(
     BuildContext context, {
     required bool isWide,
@@ -708,16 +868,20 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     final tokens = context.tokens;
 
     if (!isWide && user == null) {
-      return Padding(
+      return Container(
+        decoration: BoxDecoration(
+          color: tokens.glassFill,
+          border: Border(bottom: BorderSide(color: tokens.glassBorder)),
+        ),
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg,
           AppSpacing.md,
           AppSpacing.lg,
-          AppSpacing.xs,
+          AppSpacing.md,
         ),
         child: Row(
           children: [
-            const BrandBadge(size: 34),
+            const BrandBadge(size: 32),
             const Spacer(),
             CircleAvatar(
               radius: 16,
@@ -737,12 +901,16 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
       return const SizedBox(height: AppSpacing.sm);
     }
 
-    return Padding(
+    return Container(
+      decoration: BoxDecoration(
+        color: tokens.glassFill,
+        border: Border(bottom: BorderSide(color: tokens.glassBorder)),
+      ),
       padding: EdgeInsets.fromLTRB(
         isCompact ? AppSpacing.lg : AppSpacing.xxl,
         AppSpacing.md,
         isCompact ? AppSpacing.lg : AppSpacing.xxl,
-        AppSpacing.xs,
+        AppSpacing.md,
       ),
       child: Wrap(
         spacing: AppSpacing.md,
@@ -750,32 +918,45 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!isWide) ...[
-                const BrandBadge(size: 32, showText: false),
-                const SizedBox(width: AppSpacing.sm),
-              ],
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Xin chào, ${user.displayName ?? user.email ?? 'bạn'}',
-                      style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    SelectableText(
-                      'Firebase UID: ${user.uid}',
-                      style: text.bodySmall?.copyWith(color: tokens.textMuted),
-                    ),
-                  ],
-                ),
+          InkWell(
+            key: const Key('header-profile-card'),
+            onTap: _openAccountSettingsDialog,
+            borderRadius: AppRadius.smAll,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xs,
+                vertical: 2,
               ),
-            ],
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!isWide) ...[
+                    const BrandBadge(size: 30, showText: false),
+                    const SizedBox(width: AppSpacing.sm),
+                  ],
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Xin chào, ${user.displayName ?? user.email ?? 'bạn'}',
+                          style: text.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SelectableText(
+                          'Firebase UID: ${user.uid}',
+                          style: text.bodySmall?.copyWith(
+                            color: tokens.textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
           if (widget.onLogout != null)
             OutlinedButton.icon(
@@ -859,11 +1040,22 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         border: Border.all(color: context.tokens.glassBorder),
         borderRadius: AppRadius.mdAll,
       ),
-      child: Text(
-        '$weekday, ${now.day} $month',
-        style: context.text.labelMedium?.copyWith(
-          color: context.tokens.textMuted,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.calendar_month_outlined,
+            size: 16,
+            color: context.tokens.textMuted,
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Text(
+            '$weekday, ${now.day} $month',
+            style: context.text.labelMedium?.copyWith(
+              color: context.tokens.textMuted,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -915,8 +1107,11 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'All notes',
-              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              'My Notes',
+              style: text.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                fontSize: 19,
+              ),
             ),
             const SizedBox(width: AppSpacing.sm),
             Container(
@@ -949,7 +1144,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             TextButton.icon(
               key: const Key('manage-labels-button'),
               onPressed: _openManageLabelsDialog,
-              icon: const Icon(Icons.label_outline_rounded, size: 16),
+              icon: const Icon(Icons.folder_open_rounded, size: 16),
               label: const Text('Manage labels'),
             ),
           ],
@@ -1007,7 +1202,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             crossAxisCount: columns,
             mainAxisSpacing: AppSpacing.lg,
             crossAxisSpacing: AppSpacing.lg,
-            mainAxisExtent: isCompact ? 228 : 246,
+            mainAxisExtent: isCompact ? 236 : 254,
           ),
           itemBuilder: (context, index) {
             final note = notes[index];
@@ -1066,11 +1261,149 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     }
 
     return EmptyStateView(
-      icon: Icons.auto_awesome_outlined,
+      icon: Icons.note_add_outlined,
       title: 'Your workspace is empty',
       message: 'Create your first note to capture ideas and thoughts.',
       actionLabel: 'Create note',
       onAction: () => _openEditor(isWide: isWide),
+    );
+  }
+}
+
+class _FolderCard extends StatelessWidget {
+  const _FolderCard({
+    required this.label,
+    required this.colorIndex,
+    required this.selected,
+    required this.noteCount,
+    required this.onTap,
+  });
+
+  final String label;
+  final int colorIndex;
+  final bool selected;
+  final int noteCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = context.text;
+    final fill =
+        AppColors.folderPastels[colorIndex % AppColors.folderPastels.length];
+    final iconColor = AppColors
+        .folderIconColors[colorIndex % AppColors.folderIconColors.length];
+
+    return Material(
+      color: fill,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: selected ? AppColors.charcoal : Colors.transparent,
+          width: selected ? 1.6 : 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 16, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: iconColor,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.insert_drive_file_rounded,
+                      color: Colors.white,
+                      size: 19,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    Icons.more_horiz_rounded,
+                    color: AppColors.charcoal.withValues(alpha: 0.65),
+                    size: 20,
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.titleMedium?.copyWith(
+                  color: AppColors.charcoal,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '$noteCount ${noteCount == 1 ? 'note' : 'notes'}',
+                style: text.labelSmall?.copyWith(
+                  color: AppColors.charcoal.withValues(alpha: 0.55),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NewFolderActionCard extends StatelessWidget {
+  const _NewFolderActionCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = context.text;
+    final tokens = context.tokens;
+
+    return Material(
+      color: tokens.glassFill,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: context.colors.outline, width: 1.2),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: AppColors.charcoal,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.create_new_folder_rounded,
+                color: Colors.white,
+                size: 16,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'New folder',
+              style: text.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: context.colors.onSurface,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1098,7 +1431,7 @@ class _SidebarItem extends StatelessWidget {
 
     return Material(
       color: selected
-          ? colors.primaryContainer.withValues(alpha: 0.7)
+          ? colors.primaryContainer.withValues(alpha: 0.85)
           : Colors.transparent,
       borderRadius: AppRadius.mdAll,
       child: InkWell(
@@ -1257,6 +1590,12 @@ class _LabelFilterChip extends StatelessWidget {
   }
 }
 
+/// MINO-inspired solid pastel Note Card:
+/// - Solid pastel fill (`#EBE886` yellow, `#F1ACAC` coral, `#77BFE6` sky blue, etc.)
+/// - Top date + pin/more menu
+/// - Bold title + dark rounded-square edit icon badge (`#111827`)
+/// - Multi-line body text
+/// - Bottom clock icon + timestamp and label badges
 class _NoteCard extends StatelessWidget {
   const _NoteCard({
     required this.note,
@@ -1273,149 +1612,213 @@ class _NoteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
-    final colors = context.colors;
     final text = context.text;
-    final accent = tokens.noteAccent(note.colorIndex);
+    final cardFill = tokens.noteCardFill(note.colorIndex);
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.68);
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: AppRadius.lgAll,
-        boxShadow: tokens.glow(accent, strength: note.isPinned ? 0.9 : 0.45),
-      ),
-      child: Material(
-        color: colors.surfaceContainer.withValues(alpha: 0.88),
-        shape: RoundedRectangleBorder(
-          borderRadius: AppRadius.lgAll,
-          side: BorderSide(
-            color: accent.withValues(alpha: note.isPinned ? 0.65 : 0.32),
-            width: note.isPinned ? 1.4 : 1,
-          ),
+    return Material(
+      color: cardFill,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(
+          color: note.isPinned
+              ? inkColor.withValues(alpha: 0.45)
+              : inkColor.withValues(alpha: 0.06),
+          width: note.isPinned ? 1.5 : 1,
         ),
-        child: InkWell(
-          key: Key('note-card-${note.id}'),
-          onTap: onTap,
-          borderRadius: AppRadius.lgAll,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 15, 18, 15),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: accent,
-                        shape: BoxShape.circle,
+      ),
+      child: InkWell(
+        key: Key('note-card-${note.id}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 18, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _formatShortDate(note.updatedAt),
+                      style: text.labelSmall?.copyWith(
+                        color: subInkColor,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Text(
-                        _formatDate(note.updatedAt),
-                        style: text.labelSmall?.copyWith(
-                          color: tokens.textMuted,
+                  ),
+                  if (note.status != NoteStatus.normal)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Container(
+                        key: Key('note-status-badge-${note.id}'),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
                         ),
-                      ),
-                    ),
-                    NoteSyncStatusIndicator(status: note.syncStatus),
-                    if (note.isPinned)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 4),
-                        child: Icon(
-                          Icons.push_pin_rounded,
-                          size: 16,
-                          color: accent,
+                        decoration: BoxDecoration(
+                          color: inkColor.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(999),
                         ),
-                      ),
-                    PopupMenuButton<String>(
-                      tooltip: 'Note actions',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 140),
-                      iconSize: 19,
-                      icon: Icon(
-                        Icons.more_horiz_rounded,
-                        color: tokens.textMuted,
-                      ),
-                      onSelected: (value) {
-                        if (value == 'pin') onTogglePin();
-                        if (value == 'delete') onDelete();
-                      },
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: 'pin',
-                          child: Text(
-                            note.isPinned ? 'Unpin note' : 'Pin note',
+                        child: Text(
+                          note.status.label,
+                          style: text.labelSmall?.copyWith(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: inkColor,
                           ),
                         ),
-                        const PopupMenuItem(
-                          value: 'delete',
-                          child: Text('Delete note'),
+                      ),
+                    ),
+                  if (note.attachments.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Tooltip(
+                        message:
+                            '${note.attachments.length} ${note.attachments.length == 1 ? 'attachment' : 'attachments'}',
+                        child: Container(
+                          key: Key('note-attachment-indicator-${note.id}'),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: inkColor.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.attach_file_rounded,
+                                size: 12,
+                                color: inkColor,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                '${note.attachments.length}',
+                                style: text.labelSmall?.copyWith(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: inkColor,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ],
+                      ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.sm + 2),
-                if (note.status != NoteStatus.normal) ...[
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: NoteSyncStatusIndicator(status: note.syncStatus),
+                  ),
+                  if (note.isPinned)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Icon(
+                        Icons.push_pin_rounded,
+                        key: Key('note-pin-indicator-${note.id}'),
+                        size: 16,
+                        color: inkColor,
+                      ),
                     ),
-                    decoration: BoxDecoration(
-                      color: accent.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
+                  PopupMenuButton<String>(
+                    tooltip: 'Note actions',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 140),
+                    iconSize: 19,
+                    icon: Icon(Icons.more_horiz_rounded, color: subInkColor),
+                    onSelected: (value) {
+                      if (value == 'pin') onTogglePin();
+                      if (value == 'delete') onDelete();
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'pin',
+                        child: Text(note.isPinned ? 'Unpin note' : 'Pin note'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Delete note'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
                     child: Text(
-                      note.status.label,
-                      style: text.labelSmall?.copyWith(
+                      note.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.titleLarge?.copyWith(
+                        fontSize: 18,
                         fontWeight: FontWeight.w700,
-                        color: accent,
+                        color: inkColor,
+                        height: 1.25,
                       ),
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.sm),
-                ],
-                Text(
-                  note.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.titleLarge?.copyWith(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    height: 1.25,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    note.content,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.bodySmall?.copyWith(
-                      color: colors.onSurfaceVariant,
-                      height: 1.55,
+                  const SizedBox(width: AppSpacing.sm),
+                  Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: inkColor,
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: const Icon(
+                      Icons.edit_outlined,
+                      size: 14,
+                      color: Colors.white,
                     ),
                   ),
-                ),
-                if (note.labels.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: note.labels
-                        .take(3)
-                        .map(
-                          (label) =>
-                              _NoteLabelBadge(label: label, accent: accent),
-                        )
-                        .toList(),
-                  ),
                 ],
-              ],
-            ),
+              ),
+              const SizedBox(height: AppSpacing.sm + 2),
+              Expanded(
+                child: Text(
+                  note.content,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.bodySmall?.copyWith(
+                    color: subInkColor,
+                    height: 1.55,
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Row(
+                children: [
+                  Icon(Icons.access_time_rounded, size: 14, color: subInkColor),
+                  const SizedBox(width: 5),
+                  Text(
+                    _formatDate(note.updatedAt),
+                    style: text.labelSmall?.copyWith(
+                      color: subInkColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (note.labels.isNotEmpty)
+                    Flexible(
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: note.labels
+                            .take(2)
+                            .map((label) => _NoteLabelBadge(label: label))
+                            .toList(),
+                      ),
+                    ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
@@ -1439,32 +1842,40 @@ class _NoteListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
-    final colors = context.colors;
     final text = context.text;
-    final accent = tokens.noteAccent(note.colorIndex);
+    final cardFill = tokens.noteCardFill(note.colorIndex);
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.68);
 
     return Material(
-      color: colors.surfaceContainer.withValues(alpha: 0.88),
+      color: cardFill,
       shape: RoundedRectangleBorder(
-        borderRadius: AppRadius.mdAll,
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: accent.withValues(alpha: note.isPinned ? 0.65 : 0.3),
+          color: note.isPinned
+              ? inkColor.withValues(alpha: 0.45)
+              : inkColor.withValues(alpha: 0.08),
         ),
       ),
       child: InkWell(
         key: Key('note-tile-${note.id}'),
         onTap: onTap,
-        borderRadius: AppRadius.mdAll,
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+          padding: const EdgeInsets.fromLTRB(18, 14, 10, 14),
           child: Row(
             children: [
               Container(
-                width: 4,
-                height: 44,
+                width: 28,
+                height: 28,
                 decoration: BoxDecoration(
-                  color: accent,
-                  borderRadius: AppRadius.pillAll,
+                  color: inkColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.edit_outlined,
+                  color: Colors.white,
+                  size: 15,
                 ),
               ),
               const SizedBox(width: AppSpacing.md),
@@ -1481,56 +1892,95 @@ class _NoteListTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: text.titleMedium?.copyWith(
                               fontWeight: FontWeight.w700,
+                              color: inkColor,
                             ),
                           ),
                         ),
-                          NoteSyncStatusIndicator(status: note.syncStatus),
+                        const SizedBox(width: 6),
+                        NoteSyncStatusIndicator(status: note.syncStatus),
+                        if (note.status != NoteStatus.normal) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            key: Key('note-tile-status-badge-${note.id}'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: inkColor.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              note.status.label,
+                              style: text.labelSmall?.copyWith(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: inkColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (note.attachments.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            key: Key(
+                              'note-tile-attachment-indicator-${note.id}',
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: inkColor.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.attach_file_rounded,
+                                  size: 12,
+                                  color: inkColor,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  '${note.attachments.length}',
+                                  style: text.labelSmall?.copyWith(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: inkColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         if (note.isPinned) ...[
                           const SizedBox(width: 7),
-                          Icon(Icons.push_pin_rounded, color: accent, size: 15),
+                          Icon(
+                            Icons.push_pin_rounded,
+                            key: Key('note-tile-pin-indicator-${note.id}'),
+                            color: inkColor,
+                            size: 15,
+                          ),
                         ],
                       ],
                     ),
-                    if (note.status != NoteStatus.normal) ...[
-                      const SizedBox(height: 5),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: accent.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          note.status.label,
-                          style: text.labelSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: accent,
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 4),
                     Text(
                       note.content,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: text.bodySmall?.copyWith(
-                        color: colors.onSurfaceVariant,
-                      ),
+                      style: text.bodySmall?.copyWith(color: subInkColor),
                     ),
                     if (note.labels.isNotEmpty) ...[
-                      const SizedBox(height: 9),
+                      const SizedBox(height: 8),
                       Wrap(
                         spacing: 6,
                         runSpacing: 6,
                         children: note.labels
                             .take(3)
-                            .map(
-                              (label) =>
-                                  _NoteLabelBadge(label: label, accent: accent),
-                            )
+                            .map((label) => _NoteLabelBadge(label: label))
                             .toList(),
                       ),
                     ],
@@ -1540,7 +1990,7 @@ class _NoteListTile extends StatelessWidget {
               const SizedBox(width: 12),
               Text(
                 _formatDate(note.updatedAt),
-                style: text.labelSmall?.copyWith(color: tokens.textMuted),
+                style: text.labelSmall?.copyWith(color: subInkColor),
               ),
               PopupMenuButton<String>(
                 tooltip: 'Note actions',
@@ -1558,7 +2008,7 @@ class _NoteListTile extends StatelessWidget {
                     child: Text('Delete note'),
                   ),
                 ],
-                icon: Icon(Icons.more_horiz_rounded, color: tokens.textMuted),
+                icon: Icon(Icons.more_horiz_rounded, color: subInkColor),
               ),
             ],
           ),
@@ -1569,30 +2019,34 @@ class _NoteListTile extends StatelessWidget {
 }
 
 class _NoteLabelBadge extends StatelessWidget {
-  const _NoteLabelBadge({required this.label, required this.accent});
+  const _NoteLabelBadge({required this.label});
 
   final String label;
-  final Color accent;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: accent.withValues(alpha: 0.3)),
+        color: AppColors.charcoal.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         label,
         style: context.text.labelSmall?.copyWith(
-          color: accent,
+          color: AppColors.charcoal,
           fontSize: 10,
           fontWeight: FontWeight.w700,
         ),
       ),
     );
   }
+}
+
+String _formatShortDate(DateTime date) {
+  final day = date.day.toString().padLeft(2, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  return '$day/$month/${date.year}';
 }
 
 String _formatDate(DateTime date) {

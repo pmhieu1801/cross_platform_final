@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../features/notes/application/note_attachment_service.dart';
 import '../features/notes/application/note_providers.dart';
 import '../models/note.dart';
 import '../theme/theme.dart';
@@ -56,6 +58,7 @@ class NoteEditorPanel extends StatefulWidget {
     required this.onSave,
     this.onDelete,
     this.onClose,
+    this.attachmentPicker,
     this.debounceDuration = const Duration(milliseconds: 400),
     this.embedded = false,
   });
@@ -75,6 +78,11 @@ class NoteEditorPanel extends StatefulWidget {
 
   /// Called when the user closes the editor.
   final VoidCallback? onClose;
+
+  /// Optional custom attachment picker for R15 (images/videos) and R16 (files).
+  /// When omitted, opens the interactive NoteFlow attachment selector dialog.
+  final Future<AttachmentPickOutcome> Function(NoteAttachmentKind kind)?
+  attachmentPicker;
 
   /// Debounce window before auto-saving after the user stops typing.
   final Duration debounceDuration;
@@ -107,6 +115,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   bool _hasEverSaved = false;
   NoteAutosavePhase _phase = NoteAutosavePhase.idle;
   String? _errorMessage;
+  String? _attachmentError;
   Note? _lastSavedSnapshot;
 
   @override
@@ -168,7 +177,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
 
   bool get _hasMeaningfulContent =>
       _titleController.text.trim().isNotEmpty ||
-      _contentController.text.trim().isNotEmpty;
+      _contentController.text.trim().isNotEmpty ||
+      _attachments.isNotEmpty;
 
   Note _buildDraft() {
     final now = DateTime.now();
@@ -211,24 +221,262 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     return false;
   }
 
-  void _addAttachment(NoteAttachmentKind kind) {
-    final createdAt = DateTime.now();
-    final attachment = NoteAttachment(
-      id: 'attachment-${createdAt.microsecondsSinceEpoch}',
-      name: '${kind.label} ${_attachments.length + 1}',
-      kind: kind,
-      localPath: 'local://$kind/${createdAt.microsecondsSinceEpoch}',
-      mimeType: switch (kind) {
-        NoteAttachmentKind.image => 'image/*',
-        NoteAttachmentKind.video => 'video/*',
-        NoteAttachmentKind.file => 'application/octet-stream',
-      },
-      createdAt: createdAt,
-    );
+  Future<void> _addAttachment(NoteAttachmentKind kind) async {
+    final outcome = widget.attachmentPicker != null
+        ? await widget.attachmentPicker!(kind)
+        : await _showAttachmentPickerDialog(kind);
+    if (!mounted) return;
+
+    if (outcome.cancelled) {
+      return;
+    }
+    if (outcome.permissionDenied || outcome.errorMessage != null) {
+      setState(() {
+        _attachmentError =
+            outcome.errorMessage ??
+            'Permission to access files or media was denied.';
+      });
+      return;
+    }
+
+    final added = <NoteAttachment>[];
+    String? firstValidationError;
+    for (final candidate in outcome.candidates) {
+      final result = NoteAttachmentValidator.validate(
+        candidate,
+        ownerUid: widget.initialNote?.ownerUid,
+      );
+      if (result.isValid) {
+        added.add(result.attachment!);
+      } else {
+        firstValidationError ??= result.error;
+      }
+    }
+
     setState(() {
-      _attachments.add(attachment);
+      _attachmentError = firstValidationError;
+      if (added.isNotEmpty) {
+        _attachments.addAll(added);
+      }
     });
-    _markPendingAndScheduleAutosave();
+    if (added.isNotEmpty) {
+      _markPendingAndScheduleAutosave();
+    }
+  }
+
+  Future<AttachmentPickOutcome> _showAttachmentPickerDialog(
+    NoteAttachmentKind kind,
+  ) async {
+    final defaultName = switch (kind) {
+      NoteAttachmentKind.image => 'photo_${_attachments.length + 1}.png',
+      NoteAttachmentKind.video => 'clip_${_attachments.length + 1}.mp4',
+      NoteAttachmentKind.file => 'document_${_attachments.length + 1}.pdf',
+    };
+    final defaultSizeKb = switch (kind) {
+      NoteAttachmentKind.image => '240',
+      NoteAttachmentKind.video => '2048',
+      NoteAttachmentKind.file => '512',
+    };
+    final nameController = TextEditingController(text: defaultName);
+    final sizeKbController = TextEditingController(text: defaultSizeKb);
+
+    final result = await showDialog<AttachmentPickOutcome>(
+      context: context,
+      builder: (dialogContext) {
+        final text = dialogContext.text;
+        final presets = switch (kind) {
+          NoteAttachmentKind.image => const [
+            ('whiteboard.png', 180 * 1024),
+            ('wireframe.jpg', 420 * 1024),
+            ('diagram.webp', 95 * 1024),
+          ],
+          NoteAttachmentKind.video => const [
+            ('demo_walkthrough.mp4', 3 * 1024 * 1024),
+            ('lecture_clip.webm', 5 * 1024 * 1024),
+          ],
+          NoteAttachmentKind.file => const [
+            ('project_spec.pdf', 380 * 1024),
+            ('meeting_notes.md', 24 * 1024),
+            ('budget_2026.csv', 64 * 1024),
+          ],
+        };
+
+        return AlertDialog(
+          title: Text('Attach ${kind.label.toLowerCase()}'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(switch (kind) {
+                  NoteAttachmentKind.image =>
+                    'Supported: PNG, JPG, GIF, WEBP, BMP (max 5 MB).',
+                  NoteAttachmentKind.video =>
+                    'Supported: MP4, WEBM, MOV, M4V, AVI (max 15 MB).',
+                  NoteAttachmentKind.file => 'Supported: PDF, TXT, MD, CSV, JSON, Office, ZIP (max 5 MB).',
+                }, style: text.bodySmall),
+                const SizedBox(height: AppSpacing.sm),
+                Wrap(
+                  spacing: AppSpacing.xs,
+                  runSpacing: AppSpacing.xs,
+                  children: presets.map((preset) {
+                    return ActionChip(
+                      key: Key('attachment-preset-${preset.$1}'),
+                      label: Text(
+                        '${preset.$1} (${NoteAttachmentValidator.formatBytes(preset.$2)})',
+                      ),
+                      onPressed: () {
+                        nameController.text = preset.$1;
+                        sizeKbController.text = '${preset.$2 ~/ 1024}';
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  key: const Key('attachment-picker-name-input'),
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'File name',
+                    hintText: 'e.g. screenshot.png',
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                TextField(
+                  key: const Key('attachment-picker-size-kb-input'),
+                  controller: sizeKbController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'File size (KB)',
+                    hintText: '240',
+                    isDense: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const Key('attachment-picker-cancel'),
+              onPressed: () =>
+                  Navigator.of(dialogContext)
+                      .pop(const AttachmentPickOutcome.cancelled()),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              key: const Key('attachment-picker-confirm'),
+              onPressed: () {
+                final rawName = nameController.text.trim();
+                final parsedKb = int.tryParse(sizeKbController.text.trim());
+                final sizeBytes = parsedKb == null ? 0 : parsedKb * 1024;
+                Navigator.of(dialogContext).pop(
+                  AttachmentPickOutcome.picked([
+                    PickedAttachmentCandidate(
+                      name: rawName,
+                      kind: kind,
+                      sizeBytes: sizeBytes,
+                    ),
+                  ]),
+                );
+              },
+              icon: const Icon(Icons.attach_file_rounded, size: 18),
+              label: const Text('Attach'),
+            ),
+          ],
+        );
+      },
+    );
+
+    nameController.dispose();
+    sizeKbController.dispose();
+    return result ?? const AttachmentPickOutcome.cancelled();
+  }
+
+  void _openAttachmentPreview(NoteAttachment attachment) {
+    final authorized = NoteAttachmentValidator.canAccessAttachment(
+      note: _buildDraft(),
+      attachment: attachment,
+      viewerUid: widget.initialNote?.ownerUid,
+    );
+    if (!authorized) {
+      setState(() {
+        _attachmentError = 'You are not authorized to open this attachment from the current account.';
+      });
+      return;
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final text = dialogContext.text;
+        final previewBytes = attachment.previewBase64 != null
+            ? base64Decode(attachment.previewBase64!)
+            : null;
+        return AlertDialog(
+          key: const Key('attachment-preview-dialog'),
+          title: Row(
+            children: [
+              Icon(switch (attachment.kind) {
+                NoteAttachmentKind.image => Icons.image_rounded,
+                NoteAttachmentKind.video => Icons.videocam_rounded,
+                NoteAttachmentKind.file => Icons.insert_drive_file_rounded,
+              }),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(attachment.name, overflow: TextOverflow.ellipsis),
+              ),
+            ],
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (previewBytes != null &&
+                    attachment.kind == NoteAttachmentKind.image) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.memory(
+                      previewBytes,
+                      key: const Key('attachment-image-memory-preview'),
+                      height: 180,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+                Text(
+                  'Type: ${attachment.kind.label} (${attachment.mimeType})',
+                  style: text.bodySmall,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Size: ${NoteAttachmentValidator.formatBytes(attachment.sizeBytes)}',
+                  style: text.bodySmall,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Location: ${attachment.localPath}',
+                  style: text.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const Key('attachment-preview-close'),
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _removeAttachment(NoteAttachment attachment) {
@@ -254,25 +502,45 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     _markPendingAndScheduleAutosave();
   }
 
-  void _addCustomLabel() {
-    final trimmed = _newLabelController.text.trim();
-    if (trimmed.isEmpty) return;
-    final existingMatch = _catalogLabels.cast<String?>().firstWhere(
-      (item) => item!.toLowerCase() == trimmed.toLowerCase(),
-      orElse: () => null,
-    );
-    final resolved = existingMatch ?? trimmed;
+  void _commitPendingLabelInput({bool scheduleSave = true}) {
+    final raw = _newLabelController.text.trim();
+    if (raw.isEmpty) return;
+    final parts = raw
+        .split(',')
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return;
+
     setState(() {
-      if (!_catalogLabels.contains(resolved)) {
-        _catalogLabels = [..._catalogLabels, resolved]
-          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-      }
-      if (!_labels.contains(resolved)) {
-        _labels.add(resolved);
+      for (final part in parts) {
+        final existingMatch = _catalogLabels.cast<String?>().firstWhere(
+          (item) => item!.toLowerCase() == part.toLowerCase(),
+          orElse: () => null,
+        );
+        final resolved = existingMatch ?? part;
+        if (!_catalogLabels.contains(resolved)) {
+          _catalogLabels = [..._catalogLabels, resolved]
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+        }
+        if (!_labels.contains(resolved)) {
+          _labels.add(resolved);
+        }
       }
       _newLabelController.clear();
     });
-    _markPendingAndScheduleAutosave();
+    if (scheduleSave) {
+      _markPendingAndScheduleAutosave();
+    } else {
+      _dirty = true;
+      if (_syncStatus != NoteSyncStatus.pending) {
+        _syncStatus = NoteSyncStatus.pending;
+      }
+    }
+  }
+
+  void _addCustomLabel() {
+    _commitPendingLabelInput(scheduleSave: true);
   }
 
   void _markPendingAndScheduleAutosave() {
@@ -302,6 +570,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
 
   void _flushPendingSave() {
     _debounceTimer?.cancel();
+    if (_newLabelController.text.trim().isNotEmpty) {
+      _commitPendingLabelInput(scheduleSave: false);
+    }
     if (_dirty && (_hasMeaningfulContent || _hasEverSaved)) {
       unawaited(_persistNow(isAutosave: true));
     }
@@ -309,6 +580,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
 
   Future<bool> _persistNow({required bool isAutosave}) async {
     _debounceTimer?.cancel();
+    if (_newLabelController.text.trim().isNotEmpty) {
+      _commitPendingLabelInput(scheduleSave: false);
+    }
     if (!_hasMeaningfulContent && !_hasEverSaved) {
       return true;
     }
@@ -330,9 +604,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
         }
         return false;
       }
-      _dirty = false;
       _hasEverSaved = true;
       _lastSavedSnapshot = saved;
+      _dirty = _differsFromLastSaved();
       if (mounted) {
         setState(() {
           _syncStatus = saved.syncStatus;
@@ -352,9 +626,30 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     }
   }
 
+  Future<void> _handleSaveAndClose() async {
+    _debounceTimer?.cancel();
+    if (_newLabelController.text.trim().isNotEmpty) {
+      _commitPendingLabelInput(scheduleSave: false);
+    }
+    if (_hasMeaningfulContent || _hasEverSaved) {
+      final ok = await _persistNow(isAutosave: false);
+      if (!ok || !mounted) return;
+    }
+    if (!mounted) return;
+    if (widget.onClose != null) {
+      widget.onClose!();
+    } else {
+      Navigator.of(context).maybePop();
+    }
+  }
+
   Future<void> _handleClose() async {
     _debounceTimer?.cancel();
-    if (_dirty && (_hasMeaningfulContent || _hasEverSaved)) {
+    if (_newLabelController.text.trim().isNotEmpty) {
+      _commitPendingLabelInput(scheduleSave: false);
+    }
+    if ((_dirty || _differsFromLastSaved()) &&
+        (_hasMeaningfulContent || _hasEverSaved)) {
       await _persistNow(isAutosave: false);
     }
     if (!mounted) return;
@@ -390,10 +685,15 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     final colors = context.colors;
     final text = context.text;
     final accent = tokens.noteAccent(_colorIndex);
+    final pastelFill = tokens.noteCardFill(_colorIndex);
+    final isEditing = widget.initialNote != null || _hasEverSaved;
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.65);
 
     return GlassPanel(
-      glowColor: accent,
       padding: const EdgeInsets.all(AppSpacing.xl),
+      color: pastelFill,
+      borderColor: inkColor.withValues(alpha: 0.12),
       borderRadius: widget.embedded
           ? AppRadius.xlAll
           : const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
@@ -411,6 +711,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                   widget.embedded
                       ? Icons.close_rounded
                       : Icons.arrow_back_rounded,
+                  color: inkColor,
                 ),
               ),
               const SizedBox(width: AppSpacing.xs),
@@ -439,7 +740,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 },
                 icon: Icon(
                   _isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
-                  color: _isPinned ? accent : null,
+                  color: _isPinned ? inkColor : subInkColor,
                 ),
               ),
               if ((_hasEverSaved || widget.initialNote != null) &&
@@ -460,17 +761,27 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             style: text.headlineSmall?.copyWith(
               fontFamily: AppTypography.display,
               fontWeight: FontWeight.w700,
+              color: inkColor,
             ),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
+              labelText: 'Title',
+              floatingLabelBehavior: FloatingLabelBehavior.never,
               hintText: 'Note title...',
+              hintStyle: text.headlineSmall?.copyWith(
+                fontFamily: AppTypography.display,
+                fontWeight: FontWeight.w600,
+                color: subInkColor,
+              ),
               border: InputBorder.none,
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
               filled: false,
-              contentPadding: EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xs,
+              ),
             ),
           ),
-          Divider(color: accent.withValues(alpha: 0.35), height: 20),
+          Divider(color: inkColor.withValues(alpha: 0.12), height: 20),
           Flexible(
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 140, maxHeight: 300),
@@ -480,14 +791,17 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 maxLines: null,
                 minLines: 5,
                 keyboardType: TextInputType.multiline,
-                style: text.bodyLarge,
-                decoration: const InputDecoration(
+                style: text.bodyLarge?.copyWith(color: inkColor, height: 1.55),
+                decoration: InputDecoration(
+                  labelText: 'Content',
+                  floatingLabelBehavior: FloatingLabelBehavior.never,
                   hintText: 'Start writing your thoughts...',
+                  hintStyle: text.bodyLarge?.copyWith(color: subInkColor),
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
                   filled: false,
-                  contentPadding: EdgeInsets.symmetric(
+                  contentPadding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.xs,
                     vertical: AppSpacing.sm,
                   ),
@@ -503,6 +817,28 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
           _buildAttachmentsSection(context, accent),
           const SizedBox(height: AppSpacing.md),
           _buildColorPicker(context, accent),
+          const SizedBox(height: AppSpacing.lg),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: _handleClose,
+                style: TextButton.styleFrom(foregroundColor: inkColor),
+                child: const Text('Done'),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              FilledButton.icon(
+                key: const Key('note-editor-save-button'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.charcoal,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: _handleSaveAndClose,
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: Text(isEditing ? 'Save changes' : 'Create note'),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -543,24 +879,23 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   }
 
   Widget _buildLabelsSection(BuildContext context, Color accent) {
-    final tokens = context.tokens;
-    final colors = context.colors;
     final text = context.text;
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.65);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
-            Icon(
-              Icons.label_outline_rounded,
-              size: 16,
-              color: tokens.textMuted,
-            ),
+            Icon(Icons.label_outline_rounded, size: 16, color: subInkColor),
             const SizedBox(width: AppSpacing.xs),
             Text(
               'Labels',
-              style: text.labelSmall?.copyWith(color: tokens.textMuted),
+              style: text.labelSmall?.copyWith(
+                color: subInkColor,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -576,10 +911,13 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 label: Text(label),
                 selected: selected,
                 onSelected: (_) => _toggleLabel(label),
-                selectedColor: accent.withValues(alpha: 0.22),
-                side: BorderSide(color: selected ? accent : tokens.glassBorder),
+                backgroundColor: Colors.white.withValues(alpha: 0.65),
+                selectedColor: inkColor,
+                side: BorderSide(
+                  color: selected ? inkColor : inkColor.withValues(alpha: 0.18),
+                ),
                 labelStyle: text.labelSmall?.copyWith(
-                  color: selected ? colors.onSurface : tokens.textMuted,
+                  color: selected ? Colors.white : inkColor,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 ),
               );
@@ -595,13 +933,34 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 controller: _newLabelController,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _addCustomLabel(),
-                style: text.bodySmall,
-                decoration: const InputDecoration(
+                style: text.bodySmall?.copyWith(color: inkColor),
+                decoration: InputDecoration(
+                  labelText: 'Labels (comma separated)',
+                  floatingLabelBehavior: FloatingLabelBehavior.never,
                   hintText: 'Attach a label...',
+                  hintStyle: text.bodySmall?.copyWith(color: subInkColor),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.72),
                   isDense: true,
-                  contentPadding: EdgeInsets.symmetric(
+                  contentPadding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.sm,
                     vertical: AppSpacing.sm,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: AppRadius.smAll,
+                    borderSide: BorderSide(
+                      color: inkColor.withValues(alpha: 0.16),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: AppRadius.smAll,
+                    borderSide: BorderSide(
+                      color: inkColor.withValues(alpha: 0.16),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: AppRadius.smAll,
+                    borderSide: const BorderSide(color: inkColor, width: 1.4),
                   ),
                 ),
               ),
@@ -611,7 +970,11 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               key: const Key('editor-add-label-button'),
               tooltip: 'Attach label',
               onPressed: _addCustomLabel,
-              icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
+              icon: const Icon(
+                Icons.add_circle_outline_rounded,
+                size: 20,
+                color: inkColor,
+              ),
             ),
           ],
         ),
@@ -622,34 +985,47 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   Widget _buildAttachmentsSection(BuildContext context, Color accent) {
     final tokens = context.tokens;
     final text = context.text;
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.65);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
-            Icon(Icons.attach_file_rounded, size: 16, color: tokens.textMuted),
+            Icon(Icons.attach_file_rounded, size: 16, color: subInkColor),
             const SizedBox(width: AppSpacing.xs),
             Expanded(
               child: Text(
-                'Attachments',
-                style: text.labelSmall?.copyWith(color: tokens.textMuted),
+                'Attachments (${_attachments.length})',
+                style: text.labelSmall?.copyWith(
+                  color: subInkColor,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             PopupMenuButton<NoteAttachmentKind>(
+              key: const Key('editor-add-attachment-menu'),
               tooltip: 'Add attachment',
-              icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+              icon: const Icon(
+                Icons.add_circle_outline_rounded,
+                size: 20,
+                color: inkColor,
+              ),
               onSelected: _addAttachment,
               itemBuilder: (context) => [
                 const PopupMenuItem(
+                  key: Key('attach-menu-image'),
                   value: NoteAttachmentKind.image,
                   child: Text('Image'),
                 ),
                 const PopupMenuItem(
+                  key: Key('attach-menu-video'),
                   value: NoteAttachmentKind.video,
                   child: Text('Video'),
                 ),
                 const PopupMenuItem(
+                  key: Key('attach-menu-file'),
                   value: NoteAttachmentKind.file,
                   child: Text('File'),
                 ),
@@ -657,6 +1033,55 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             ),
           ],
         ),
+        if (_attachmentError != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Semantics(
+            liveRegion: true,
+            child: Container(
+              key: const Key('note-attachment-error'),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: AppSpacing.xs,
+              ),
+              decoration: BoxDecoration(
+                color: tokens.danger.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: tokens.danger.withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.error_outline_rounded,
+                    size: 16,
+                    color: tokens.danger,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Expanded(
+                    child: Text(
+                      _attachmentError!,
+                      style: text.labelSmall?.copyWith(
+                        color: tokens.danger,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    key: const Key('dismiss-attachment-error'),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => setState(() => _attachmentError = null),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      size: 15,
+                      color: tokens.danger,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: AppSpacing.xs),
         if (_attachments.isEmpty)
           Container(
@@ -665,13 +1090,13 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               vertical: AppSpacing.sm,
             ),
             decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.06),
+              color: Colors.white.withValues(alpha: 0.55),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: tokens.glassBorder),
+              border: Border.all(color: inkColor.withValues(alpha: 0.14)),
             ),
             child: Text(
-              'No attachments yet. Add a local image, video, or file.',
-              style: text.bodySmall?.copyWith(color: tokens.textMuted),
+              'No attachments yet. Add an image, video, or file.',
+              style: text.bodySmall?.copyWith(color: subInkColor),
             ),
           )
         else
@@ -685,44 +1110,55 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 NoteAttachmentKind.file => Icons.insert_drive_file_rounded,
               };
 
-              return Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.06),
+              return Material(
+                color: Colors.white.withValues(alpha: 0.72),
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  key: Key('note-attachment-chip-${attachment.name}'),
+                  onTap: () => _openAttachmentPreview(attachment),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: tokens.glassBorder),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 16, color: accent),
-                    const SizedBox(width: AppSpacing.xs),
-                    Text(
-                      attachment.name,
-                      style: text.labelSmall?.copyWith(
-                        color: context.colors.onSurface,
-                        fontWeight: FontWeight.w600,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: AppSpacing.xs,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: inkColor.withValues(alpha: 0.16),
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.xs),
-                    Text(
-                      attachment.kind.label,
-                      style: text.labelSmall?.copyWith(color: tokens.textMuted),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(icon, size: 16, color: inkColor),
+                        const SizedBox(width: AppSpacing.xs),
+                        Text(
+                          attachment.name,
+                          style: text.labelSmall?.copyWith(
+                            color: inkColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.xs),
+                        Text(
+                          '${attachment.kind.label} • ${NoteAttachmentValidator.formatBytes(attachment.sizeBytes)}',
+                          style: text.labelSmall?.copyWith(color: subInkColor),
+                        ),
+                        IconButton(
+                          key: Key('remove-attachment-${attachment.name}'),
+                          tooltip: 'Remove attachment',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _removeAttachment(attachment),
+                          icon: Icon(
+                            Icons.close_rounded,
+                            size: 16,
+                            color: tokens.danger,
+                          ),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      tooltip: 'Remove attachment',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => _removeAttachment(attachment),
-                      icon: Icon(
-                        Icons.close_rounded,
-                        size: 16,
-                        color: tokens.danger,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               );
             }).toList(),
@@ -734,6 +1170,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   Widget _buildAutosaveBadge(BuildContext context) {
     final tokens = context.tokens;
     final text = context.text;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.7);
 
     return Semantics(
       liveRegion: true,
@@ -741,24 +1178,27 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
         NoteAutosavePhase.idle => Text(
           widget.initialNote == null ? 'New note' : 'Saved locally',
           key: const Key('note-autosave-status'),
-          style: text.labelMedium?.copyWith(color: tokens.textMuted),
+          style: text.labelMedium?.copyWith(
+            color: subInkColor,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         NoteAutosavePhase.saving => Row(
           key: const Key('note-autosave-status'),
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
+            const SizedBox(
               width: 12,
               height: 12,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: context.colors.primary,
+                color: AppColors.charcoal,
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
             Text(
               'Saving locally…',
-              style: text.labelMedium?.copyWith(color: tokens.textMuted),
+              style: text.labelMedium?.copyWith(color: subInkColor),
             ),
           ],
         ),
@@ -804,12 +1244,17 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   Widget _buildColorPicker(BuildContext context, Color activeAccent) {
     final tokens = context.tokens;
     final text = context.text;
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.65);
 
     return Row(
       children: [
         Text(
           'Color',
-          style: text.labelSmall?.copyWith(color: tokens.textMuted),
+          style: text.labelSmall?.copyWith(
+            color: subInkColor,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(width: AppSpacing.md),
         Expanded(
@@ -817,7 +1262,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.xs,
             children: List<Widget>.generate(tokens.noteAccents.length, (index) {
-              final color = tokens.noteAccents[index];
+              final pastelFill = tokens.noteCardFill(index);
               final selected = _colorIndex % tokens.noteAccents.length == index;
               final name = index < AppColors.noteAccentNames.length
                   ? AppColors.noteAccentNames[index]
@@ -835,24 +1280,23 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                   },
                   child: AnimatedContainer(
                     duration: AppDurations.fast,
-                    width: 26,
-                    height: 26,
+                    width: 28,
+                    height: 28,
                     decoration: BoxDecoration(
-                      color: color,
+                      color: pastelFill,
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: selected ? Colors.white : Colors.transparent,
-                        width: 2.2,
+                        color: selected
+                            ? inkColor
+                            : inkColor.withValues(alpha: 0.25),
+                        width: selected ? 2.2 : 1,
                       ),
-                      boxShadow: selected
-                          ? tokens.glow(color, strength: 1.2)
-                          : null,
                     ),
                     child: selected
                         ? const Icon(
                             Icons.check_rounded,
-                            size: 14,
-                            color: Colors.white,
+                            size: 15,
+                            color: inkColor,
                           )
                         : null,
                   ),
