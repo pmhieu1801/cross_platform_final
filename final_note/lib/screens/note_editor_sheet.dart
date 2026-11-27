@@ -63,6 +63,12 @@ class NoteEditorPanel extends StatefulWidget {
     this.onChangePassword,
     this.onDisablePassword,
     this.onLockSession,
+    this.onShareNote,
+    this.onUpdateSharePermission,
+    this.onRevokeShare,
+    this.readOnly = false,
+    this.sharedByEmail,
+    this.sharedAt,
     this.debounceDuration = const Duration(milliseconds: 400),
     this.embedded = false,
   });
@@ -113,6 +119,32 @@ class NoteEditorPanel extends StatefulWidget {
 
   final VoidCallback? onLockSession;
 
+  /// Optional sharing callbacks for the note owner (R25, R26).
+  final Future<({Note? note, String? error})> Function(
+    Note draft,
+    String recipientEmail,
+    NoteSharePermission permission,
+  )?
+  onShareNote;
+
+  final Future<({Note? note, String? error})> Function(
+    Note draft,
+    String recipientEmail,
+    NoteSharePermission permission,
+  )?
+  onUpdateSharePermission;
+
+  final Future<({Note? note, String? error})> Function(
+    Note draft,
+    String recipientEmail,
+  )?
+  onRevokeShare;
+
+  /// Whether this editor is opened by a recipient with Read-only permission (R25, R26).
+  final bool readOnly;
+  final String? sharedByEmail;
+  final DateTime? sharedAt;
+
   /// Debounce window before auto-saving after the user stops typing.
   final Duration debounceDuration;
 
@@ -137,6 +169,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   late NoteSyncStatus _syncStatus;
   late List<String> _labels;
   late List<NoteAttachment> _attachments;
+  late List<NoteShareEntry> _shares;
   late List<String> _catalogLabels;
   String? _passwordHash;
   String? _passwordSalt;
@@ -171,6 +204,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     _attachments = List<NoteAttachment>.of(
       initial?.attachments ?? const <NoteAttachment>[],
     );
+    _shares = List<NoteShareEntry>.of(
+      initial?.shares ?? const <NoteShareEntry>[],
+    );
     _passwordHash = initial?.passwordHash;
     _passwordSalt = initial?.passwordSalt;
     _catalogLabels = {...widget.availableLabels, ..._labels}.toList()
@@ -196,9 +232,37 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       _catalogLabels = {...widget.availableLabels, ..._labels}.toList()
         ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     }
-    if (!_dirty &&
-        oldWidget.initialNote?.syncStatus != widget.initialNote?.syncStatus) {
-      _syncStatus = widget.initialNote?.syncStatus ?? NoteSyncStatus.pending;
+    final next = widget.initialNote;
+    if (next != null) {
+      _shares = List<NoteShareEntry>.of(next.shares);
+      _passwordHash = next.passwordHash;
+      _passwordSalt = next.passwordSalt;
+      if (!_dirty && oldWidget.initialNote?.syncStatus != next.syncStatus) {
+        _syncStatus = next.syncStatus;
+      }
+      // Real-time collaboration update from another authorized editor (R26).
+      if (!_dirty &&
+          (oldWidget.initialNote?.title != next.title ||
+              oldWidget.initialNote?.content != next.content ||
+              oldWidget.initialNote?.updatedAt != next.updatedAt)) {
+        _titleController.removeListener(_onFieldEdited);
+        _contentController.removeListener(_onFieldEdited);
+        if (_titleController.text != next.title) {
+          _titleController.text = next.title;
+        }
+        if (_contentController.text != next.content) {
+          _contentController.text = next.content;
+        }
+        _titleController.addListener(_onFieldEdited);
+        _contentController.addListener(_onFieldEdited);
+        _colorIndex = next.colorIndex;
+        _isPinned = next.isPinned;
+        _pinnedAt = next.pinnedAt;
+        _status = next.status;
+        _labels = List<String>.of(next.labels);
+        _attachments = List<NoteAttachment>.of(next.attachments);
+        _lastSavedSnapshot = next;
+      }
     }
   }
 
@@ -232,11 +296,13 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       isPinned: _isPinned,
       pinnedAt: _isPinned ? (_pinnedAt ?? now) : null,
       ownerUid: widget.initialNote?.ownerUid,
+      ownerEmail: widget.initialNote?.ownerEmail,
       status: _status,
       syncStatus: _syncStatus,
       attachments: List<NoteAttachment>.unmodifiable(_attachments),
       passwordHash: _passwordHash,
       passwordSalt: _passwordSalt,
+      shares: List<NoteShareEntry>.unmodifiable(_shares),
     );
   }
 
@@ -528,6 +594,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   }
 
   void _onFieldEdited() {
+    if (widget.readOnly) return;
     if (!_differsFromLastSaved()) return;
     _markPendingAndScheduleAutosave();
   }
@@ -621,6 +688,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
 
   Future<bool> _persistNow({required bool isAutosave}) async {
     _debounceTimer?.cancel();
+    if (widget.readOnly) return true;
     if (_newLabelController.text.trim().isNotEmpty) {
       _commitPendingLabelInput(scheduleSave: false);
     }
@@ -649,6 +717,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       _lastSavedSnapshot = saved;
       _passwordHash = saved.passwordHash ?? _passwordHash;
       _passwordSalt = saved.passwordSalt ?? _passwordSalt;
+      if (saved.shares.isNotEmpty) {
+        _shares = List<NoteShareEntry>.of(saved.shares);
+      }
       _dirty = _differsFromLastSaved();
       if (mounted) {
         setState(() {
@@ -805,6 +876,63 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     );
   }
 
+  Future<void> _handleShareButton() async {
+    if (widget.readOnly || widget.onShareNote == null) return;
+    if (!_hasEverSaved || _dirty) {
+      final savedOk = await _persistNow(isAutosave: false);
+      if (!savedOk || !mounted) return;
+    }
+    final currentDraft = _lastSavedSnapshot ?? _buildDraft();
+    await showNoteShareDialog(
+      context,
+      note: currentDraft.copyWith(shares: _shares),
+      onAddShare: (recipientEmail, permission) async {
+        final res = await widget.onShareNote!(
+          currentDraft,
+          recipientEmail,
+          permission,
+        );
+        if (res.note != null && mounted) {
+          setState(() {
+            _lastSavedSnapshot = res.note;
+            _shares = List<NoteShareEntry>.of(res.note!.shares);
+          });
+        }
+        return res;
+      },
+      onUpdatePermission: (recipientEmail, permission) async {
+        if (widget.onUpdateSharePermission == null) {
+          return (note: null, error: 'Updating permission is not configured.');
+        }
+        final res = await widget.onUpdateSharePermission!(
+          currentDraft,
+          recipientEmail,
+          permission,
+        );
+        if (res.note != null && mounted) {
+          setState(() {
+            _lastSavedSnapshot = res.note;
+            _shares = List<NoteShareEntry>.of(res.note!.shares);
+          });
+        }
+        return res;
+      },
+      onRevokeShare: (recipientEmail) async {
+        if (widget.onRevokeShare == null) {
+          return (note: null, error: 'Revoking access is not configured.');
+        }
+        final res = await widget.onRevokeShare!(currentDraft, recipientEmail);
+        if (res.note != null && mounted) {
+          setState(() {
+            _lastSavedSnapshot = res.note;
+            _shares = List<NoteShareEntry>.of(res.note!.shares);
+          });
+        }
+        return res;
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
@@ -854,22 +982,37 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                   ],
                 ),
               ),
-              IconButton(
-                key: const Key('note-editor-pin'),
-                tooltip: _isPinned ? 'Unpin note' : 'Pin note',
-                onPressed: () {
-                  setState(() {
-                    _isPinned = !_isPinned;
-                    _pinnedAt = _isPinned ? DateTime.now() : null;
-                  });
-                  _markPendingAndScheduleAutosave();
-                },
-                icon: Icon(
-                  _isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
-                  color: _isPinned ? inkColor : subInkColor,
+              if (!widget.readOnly)
+                IconButton(
+                  key: const Key('note-editor-pin'),
+                  tooltip: _isPinned ? 'Unpin note' : 'Pin note',
+                  onPressed: () {
+                    setState(() {
+                      _isPinned = !_isPinned;
+                      _pinnedAt = _isPinned ? DateTime.now() : null;
+                    });
+                    _markPendingAndScheduleAutosave();
+                  },
+                  icon: Icon(
+                    _isPinned
+                        ? Icons.push_pin_rounded
+                        : Icons.push_pin_outlined,
+                    color: _isPinned ? inkColor : subInkColor,
+                  ),
                 ),
-              ),
-              if (widget.onEnablePassword != null)
+              if (!widget.readOnly && widget.onShareNote != null)
+                IconButton(
+                  key: const Key('note-editor-share-button'),
+                  tooltip: 'Share note',
+                  onPressed: _handleShareButton,
+                  icon: Icon(
+                    _shares.isNotEmpty
+                        ? Icons.people_alt_rounded
+                        : Icons.person_add_alt_outlined,
+                    color: _shares.isNotEmpty ? inkColor : subInkColor,
+                  ),
+                ),
+              if (!widget.readOnly && widget.onEnablePassword != null)
                 IconButton(
                   key: const Key('note-editor-lock-button'),
                   tooltip: _isPasswordProtected
@@ -883,7 +1026,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                     color: _isPasswordProtected ? inkColor : subInkColor,
                   ),
                 ),
-              if ((_hasEverSaved || widget.initialNote != null) &&
+              if (!widget.readOnly &&
+                  (_hasEverSaved || widget.initialNote != null) &&
                   widget.onDelete != null)
                 IconButton(
                   key: const Key('note-editor-delete'),
@@ -893,10 +1037,47 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 ),
             ],
           ),
+          if (widget.readOnly) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              key: const Key('note-editor-readonly-banner'),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
+              ),
+              decoration: BoxDecoration(
+                color: inkColor.withValues(alpha: 0.08),
+                borderRadius: AppRadius.mdAll,
+                border: Border.all(color: inkColor.withValues(alpha: 0.16)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.visibility_outlined,
+                    size: 16,
+                    color: inkColor,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      widget.sharedByEmail != null
+                          ? 'Read-only shared note from ${widget.sharedByEmail}'
+                          : 'Read-only shared note — editing is disabled',
+                      style: text.labelSmall?.copyWith(
+                        color: inkColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           TextField(
             key: const Key('note-title-input'),
             controller: _titleController,
+            readOnly: widget.readOnly,
             textInputAction: TextInputAction.next,
             style: text.headlineSmall?.copyWith(
               fontFamily: AppTypography.display,
@@ -928,6 +1109,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               child: TextField(
                 key: const Key('note-content-input'),
                 controller: _contentController,
+                readOnly: widget.readOnly,
                 maxLines: null,
                 minLines: 5,
                 keyboardType: TextInputType.multiline,
@@ -964,19 +1146,21 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               TextButton(
                 onPressed: _handleClose,
                 style: TextButton.styleFrom(foregroundColor: inkColor),
-                child: const Text('Done'),
+                child: Text(widget.readOnly ? 'Close' : 'Done'),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              FilledButton.icon(
-                key: const Key('note-editor-save-button'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.charcoal,
-                  foregroundColor: Colors.white,
+              if (!widget.readOnly) ...[
+                const SizedBox(width: AppSpacing.sm),
+                FilledButton.icon(
+                  key: const Key('note-editor-save-button'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.charcoal,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: _handleSaveAndClose,
+                  icon: const Icon(Icons.check_rounded, size: 18),
+                  label: Text(isEditing ? 'Save changes' : 'Create note'),
                 ),
-                onPressed: _handleSaveAndClose,
-                icon: const Icon(Icons.check_rounded, size: 18),
-                label: Text(isEditing ? 'Save changes' : 'Create note'),
-              ),
+              ],
             ],
           ),
         ],

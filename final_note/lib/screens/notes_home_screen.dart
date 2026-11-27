@@ -11,7 +11,7 @@ import '../theme/theme.dart';
 import '../widgets/widgets.dart';
 import 'note_editor_sheet.dart';
 
-enum _NotesSection { all, pinned }
+enum _NotesSection { all, pinned, shared }
 
 enum _NotesLayout { grid, list }
 
@@ -20,6 +20,7 @@ class NotesHomeScreen extends StatefulWidget {
     super.key,
     this.initialNotes,
     this.notes,
+    this.sharedNotes,
     this.labels,
     this.isLoading = false,
     this.errorMessage,
@@ -41,6 +42,9 @@ class NotesHomeScreen extends StatefulWidget {
     this.onDisableNotePassword,
     this.isNoteUnlocked,
     this.onLockNoteSession,
+    this.onShareNote,
+    this.onUpdateSharePermission,
+    this.onRevokeShare,
     this.editorDebounceDuration = const Duration(milliseconds: 400),
   });
 
@@ -49,6 +53,9 @@ class NotesHomeScreen extends StatefulWidget {
 
   /// Externally managed notes (e.g. from Riverpod [accountNotesStreamProvider]).
   final List<Note>? notes;
+
+  /// Externally managed notes shared WITH the active account (R25, R26).
+  final List<Note>? sharedNotes;
 
   /// Externally managed label catalog (e.g. from [accountLabelsStreamProvider]).
   final List<String>? labels;
@@ -101,6 +108,27 @@ class NotesHomeScreen extends StatefulWidget {
   final bool Function(String noteId)? isNoteUnlocked;
   final void Function(String noteId)? onLockNoteSession;
 
+  /// Note sharing callbacks (R25, R26).
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String recipientEmail,
+    NoteSharePermission permission,
+  )?
+  onShareNote;
+
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String recipientEmail,
+    NoteSharePermission permission,
+  )?
+  onUpdateSharePermission;
+
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String recipientEmail,
+  )?
+  onRevokeShare;
+
   final Duration editorDebounceDuration;
 
   @override
@@ -145,6 +173,27 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant NotesHomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final active = _activeEditorNote;
+    if (active != null &&
+        (widget.notes != null || widget.sharedNotes != null)) {
+      final combined = <Note>[
+        ...(widget.notes ?? const <Note>[]),
+        ...(widget.sharedNotes ?? const <Note>[]),
+      ];
+      final matchIndex = combined.indexWhere((item) => item.id == active.id);
+      if (matchIndex == -1) {
+        // The note was deleted or share access was revoked in real time (R26).
+        _activeEditorNote = null;
+        _isCreatingNew = false;
+      } else {
+        _activeEditorNote = combined[matchIndex];
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
@@ -155,6 +204,28 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   }
 
   List<Note> get _allNotes => widget.notes ?? _localNotes;
+
+  List<Note> get _sharedWithMeNotes => widget.sharedNotes ?? const <Note>[];
+
+  NoteShareEntry? _viewerShareEntry(Note note) {
+    if (widget.user == null) {
+      // In standalone tests without user, a note with ownerUid != null and a
+      // share entry is treated as shared with the first share recipient.
+      if (note.ownerUid != null && note.shares.isNotEmpty) {
+        return note.shares.first;
+      }
+      return null;
+    }
+    if (note.ownerUid == widget.user!.uid) return null;
+    return note.shareFor(uid: widget.user!.uid, email: widget.user!.email);
+  }
+
+  bool _isReadOnlyForViewer(Note? note) {
+    if (note == null) return false;
+    final entry = _viewerShareEntry(note);
+    if (entry == null) return false;
+    return entry.permission == NoteSharePermission.readOnly;
+  }
 
   List<String> get _labels {
     if (widget.labels != null) {
@@ -179,8 +250,14 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
 
   List<Note> get _visibleNotes {
     final query = _query.trim().toLowerCase();
-    final filtered = _allNotes.where((note) {
-      final matchesSection = _section == _NotesSection.all || note.isPinned;
+    final source = _section == _NotesSection.shared
+        ? _sharedWithMeNotes
+        : _allNotes;
+    final filtered = source.where((note) {
+      final matchesSection =
+          _section == _NotesSection.all ||
+          _section == _NotesSection.shared ||
+          note.isPinned;
       final matchesLabel =
           _selectedLabel == null || note.labels.contains(_selectedLabel);
       final canSearchContent = _isNoteUnlocked(note);
@@ -474,6 +551,136 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     });
   }
 
+  Future<({Note? note, String? error})> _handleShareNote(
+    Note draft,
+    String recipientEmail,
+    NoteSharePermission permission,
+  ) async {
+    if (widget.onShareNote != null) {
+      final res = await widget.onShareNote!(
+        draft.id,
+        recipientEmail,
+        permission,
+      );
+      if (res.note != null && mounted && _activeEditorNote?.id == draft.id) {
+        setState(() => _activeEditorNote = res.note);
+      }
+      return res;
+    }
+
+    final normalized = recipientEmail.trim().toLowerCase();
+    if (normalized.isEmpty || !normalized.contains('@')) {
+      return (note: null, error: 'Enter a valid recipient email address.');
+    }
+    final existingIndex = _localNotes.indexWhere((item) => item.id == draft.id);
+    final source = existingIndex == -1 ? draft : _localNotes[existingIndex];
+    if (source.shares.any((s) => s.normalizedRecipientEmail == normalized)) {
+      return (
+        note: null,
+        error: 'This note is already shared with that email address.',
+      );
+    }
+    final newEntry = NoteShareEntry(
+      recipientEmail: normalized,
+      permission: permission,
+      sharedAt: DateTime.now(),
+      sharedByEmail: widget.user?.email ?? 'owner@noteflow.app',
+      sharedByUid: widget.user?.uid,
+    );
+    final updated = source.copyWith(
+      shares: List<NoteShareEntry>.unmodifiable([...source.shares, newEntry]),
+      updatedAt: DateTime.now(),
+    );
+    setState(() {
+      if (existingIndex == -1) {
+        _localNotes.add(updated);
+      } else {
+        _localNotes[existingIndex] = updated;
+      }
+      if (_activeEditorNote?.id == updated.id) {
+        _activeEditorNote = updated;
+      }
+    });
+    await _persistLocalNotes();
+    return (note: updated, error: null);
+  }
+
+  Future<({Note? note, String? error})> _handleUpdateSharePermission(
+    Note draft,
+    String recipientEmail,
+    NoteSharePermission permission,
+  ) async {
+    if (widget.onUpdateSharePermission != null) {
+      final res = await widget.onUpdateSharePermission!(
+        draft.id,
+        recipientEmail,
+        permission,
+      );
+      if (res.note != null && mounted && _activeEditorNote?.id == draft.id) {
+        setState(() => _activeEditorNote = res.note);
+      }
+      return res;
+    }
+
+    final normalized = recipientEmail.trim().toLowerCase();
+    final existingIndex = _localNotes.indexWhere((item) => item.id == draft.id);
+    final source = existingIndex == -1 ? draft : _localNotes[existingIndex];
+    final updatedShares = source.shares.map((s) {
+      if (s.normalizedRecipientEmail == normalized) {
+        return s.copyWith(permission: permission);
+      }
+      return s;
+    }).toList();
+    final updated = source.copyWith(
+      shares: List<NoteShareEntry>.unmodifiable(updatedShares),
+      updatedAt: DateTime.now(),
+    );
+    setState(() {
+      if (existingIndex != -1) {
+        _localNotes[existingIndex] = updated;
+      }
+      if (_activeEditorNote?.id == updated.id) {
+        _activeEditorNote = updated;
+      }
+    });
+    await _persistLocalNotes();
+    return (note: updated, error: null);
+  }
+
+  Future<({Note? note, String? error})> _handleRevokeShare(
+    Note draft,
+    String recipientEmail,
+  ) async {
+    if (widget.onRevokeShare != null) {
+      final res = await widget.onRevokeShare!(draft.id, recipientEmail);
+      if (res.note != null && mounted && _activeEditorNote?.id == draft.id) {
+        setState(() => _activeEditorNote = res.note);
+      }
+      return res;
+    }
+
+    final normalized = recipientEmail.trim().toLowerCase();
+    final existingIndex = _localNotes.indexWhere((item) => item.id == draft.id);
+    final source = existingIndex == -1 ? draft : _localNotes[existingIndex];
+    final remaining = source.shares
+        .where((s) => s.normalizedRecipientEmail != normalized)
+        .toList();
+    final updated = source.copyWith(
+      shares: List<NoteShareEntry>.unmodifiable(remaining),
+      updatedAt: DateTime.now(),
+    );
+    setState(() {
+      if (existingIndex != -1) {
+        _localNotes[existingIndex] = updated;
+      }
+      if (_activeEditorNote?.id == updated.id) {
+        _activeEditorNote = updated;
+      }
+    });
+    await _persistLocalNotes();
+    return (note: updated, error: null);
+  }
+
   Future<void> _togglePin(Note note) async {
     if (widget.onTogglePin != null) {
       await widget.onTogglePin!(note.id);
@@ -631,6 +838,11 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               initialNote: note,
               availableLabels: _labels,
               debounceDuration: widget.editorDebounceDuration,
+              readOnly: _isReadOnlyForViewer(note),
+              sharedByEmail: note == null
+                  ? null
+                  : _viewerShareEntry(note)?.sharedByEmail,
+              sharedAt: note == null ? null : _viewerShareEntry(note)?.sharedAt,
               onSave: _saveNote,
               onDelete: (target) => _deleteNoteWithoutConfirm(target.id),
               onEnablePassword: _handleEnableNotePassword,
@@ -639,6 +851,9 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               onLockSession: note == null
                   ? null
                   : () => _lockNoteSession(note.id),
+              onShareNote: _handleShareNote,
+              onUpdateSharePermission: _handleUpdateSharePermission,
+              onRevokeShare: _handleRevokeShare,
               onClose: () => Navigator.of(sheetContext).pop(),
             ),
           ),
@@ -699,6 +914,15 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                             availableLabels: _labels,
                             embedded: true,
                             debounceDuration: widget.editorDebounceDuration,
+                            readOnly: _isReadOnlyForViewer(_activeEditorNote),
+                            sharedByEmail: _activeEditorNote == null
+                                ? null
+                                : _viewerShareEntry(_activeEditorNote!)
+                                      ?.sharedByEmail,
+                            sharedAt: _activeEditorNote == null
+                                ? null
+                                : _viewerShareEntry(_activeEditorNote!)
+                                      ?.sharedAt,
                             onSave: _saveNote,
                             onDelete: (target) =>
                                 _deleteNoteWithoutConfirm(target.id),
@@ -708,6 +932,10 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                             onLockSession: _activeEditorNote == null
                                 ? null
                                 : () => _lockNoteSession(_activeEditorNote!.id),
+                            onShareNote: _handleShareNote,
+                            onUpdateSharePermission:
+                                _handleUpdateSharePermission,
+                            onRevokeShare: _handleRevokeShare,
                             onClose: () => setState(() {
                               _activeEditorNote = null;
                               _isCreatingNew = false;
@@ -731,12 +959,18 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           bottomNavigationBar: isWide
               ? null
               : NavigationBar(
-                  selectedIndex: _section == _NotesSection.all ? 0 : 1,
+                  selectedIndex: switch (_section) {
+                    _NotesSection.all => 0,
+                    _NotesSection.pinned => 1,
+                    _NotesSection.shared => 2,
+                  },
                   onDestinationSelected: (index) {
                     setState(() {
-                      _section = index == 0
-                          ? _NotesSection.all
-                          : _NotesSection.pinned;
+                      _section = switch (index) {
+                        0 => _NotesSection.all,
+                        1 => _NotesSection.pinned,
+                        _ => _NotesSection.shared,
+                      };
                       _selectedLabel = null;
                     });
                   },
@@ -750,6 +984,11 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                       icon: Icon(Icons.push_pin_outlined),
                       selectedIcon: Icon(Icons.push_pin_rounded),
                       label: 'Pinned',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.people_alt_outlined),
+                      selectedIcon: Icon(Icons.people_alt_rounded),
+                      label: 'Shared with me',
                     ),
                   ],
                 ),
@@ -833,6 +1072,17 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             selected: _section == _NotesSection.pinned,
             onTap: () => setState(() {
               _section = _NotesSection.pinned;
+              _selectedLabel = null;
+            }),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          _SidebarItem(
+            key: const Key('nav-shared-with-me'),
+            icon: Icons.people_alt_outlined,
+            label: 'Shared with me',
+            selected: _section == _NotesSection.shared,
+            onTap: () => setState(() {
+              _section = _NotesSection.shared;
               _selectedLabel = null;
             }),
           ),
@@ -985,10 +1235,21 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     final tokens = context.tokens;
     final title =
         _selectedLabel ??
-        (_section == _NotesSection.pinned ? 'Pinned notes' : 'MY NOTES');
-    final subtitle = _section == _NotesSection.pinned && _selectedLabel == null
-        ? 'Your most important thoughts, close at hand.'
-        : 'Organized folders and notes in one clean workspace.';
+        switch (_section) {
+          _NotesSection.all => 'MY NOTES',
+          _NotesSection.pinned => 'Pinned notes',
+          _NotesSection.shared => 'Shared with me',
+        };
+    final subtitle = _selectedLabel != null
+        ? 'Filtered notes in $_selectedLabel.'
+        : switch (_section) {
+            _NotesSection.all =>
+              'Organized folders and notes in one clean workspace.',
+            _NotesSection.pinned =>
+              'Your most important thoughts, close at hand.',
+            _NotesSection.shared =>
+              'Notes shared with your account, with real-time updates.',
+          };
 
     return Column(
       children: [
@@ -1490,6 +1751,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             return _NoteCard(
               note: note,
               isUnlocked: _isNoteUnlocked(note),
+              viewerShareEntry: _viewerShareEntry(note),
               onTap: () => _openEditor(note: note, isWide: isWide),
               onTogglePin: () => _togglePin(note),
               onDelete: () => _confirmAndDelete(note),
@@ -1507,6 +1769,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           _NoteListTile(
             note: note,
             isUnlocked: _isNoteUnlocked(note),
+            viewerShareEntry: _viewerShareEntry(note),
             onTap: () => _openEditor(note: note, isWide: isWide),
             onTogglePin: () => _togglePin(note),
             onDelete: () => _confirmAndDelete(note),
@@ -1540,6 +1803,14 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         icon: Icons.push_pin_outlined,
         title: 'Nothing pinned yet',
         message: 'Pin a note to keep it close at hand.',
+      );
+    }
+
+    if (_section == _NotesSection.shared) {
+      return const EmptyStateView(
+        icon: Icons.people_alt_outlined,
+        title: 'No notes shared with you yet',
+        message: 'When teammates share notes with your email address, they will appear here.',
       );
     }
 
@@ -1693,6 +1964,7 @@ class _NewFolderActionCard extends StatelessWidget {
 
 class _SidebarItem extends StatelessWidget {
   const _SidebarItem({
+    super.key,
     required this.icon,
     required this.label,
     required this.selected,
@@ -1886,10 +2158,12 @@ class _NoteCard extends StatelessWidget {
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
+    this.viewerShareEntry,
   });
 
   final Note note;
   final bool isUnlocked;
+  final NoteShareEntry? viewerShareEntry;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
@@ -1902,6 +2176,7 @@ class _NoteCard extends StatelessWidget {
     const inkColor = AppColors.charcoal;
     final subInkColor = AppColors.charcoal.withValues(alpha: 0.68);
     final isLockedContent = note.isPasswordProtected && !isUnlocked;
+    final isSharedNote = note.isShared || viewerShareEntry != null;
 
     return Material(
       color: cardFill,
@@ -1934,6 +2209,21 @@ class _NoteCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (isSharedNote)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Tooltip(
+                        message: viewerShareEntry != null
+                            ? 'Shared with you (${viewerShareEntry!.permission.label})'
+                            : 'Shared with ${note.shares.length} ${note.shares.length == 1 ? 'person' : 'people'}',
+                        child: Icon(
+                          Icons.people_alt_rounded,
+                          key: Key('note-shared-indicator-${note.id}'),
+                          size: 16,
+                          color: inkColor,
+                        ),
+                      ),
+                    ),
                   if (note.isPasswordProtected)
                     Padding(
                       padding: const EdgeInsets.only(right: 6),
@@ -2119,6 +2409,46 @@ class _NoteCard extends StatelessWidget {
                         ),
                       ),
               ),
+              if (viewerShareEntry != null) ...[
+                const SizedBox(height: 6),
+                Row(
+                  key: Key('note-shared-meta-${note.id}'),
+                  children: [
+                    Container(
+                      key: Key('note-share-permission-badge-${note.id}'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: inkColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        viewerShareEntry!.permission.label,
+                        style: text.labelSmall?.copyWith(
+                          color: inkColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'By ${viewerShareEntry!.sharedByEmail} • ${_formatShortDate(viewerShareEntry!.sharedAt)}',
+                        key: Key('note-shared-by-${note.id}'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.labelSmall?.copyWith(
+                          color: subInkColor,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: AppSpacing.sm),
               Row(
                 children: [
@@ -2161,10 +2491,12 @@ class _NoteListTile extends StatelessWidget {
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
+    this.viewerShareEntry,
   });
 
   final Note note;
   final bool isUnlocked;
+  final NoteShareEntry? viewerShareEntry;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
@@ -2177,6 +2509,7 @@ class _NoteListTile extends StatelessWidget {
     const inkColor = AppColors.charcoal;
     final subInkColor = AppColors.charcoal.withValues(alpha: 0.68);
     final isLockedContent = note.isPasswordProtected && !isUnlocked;
+    final isSharedNote = note.isShared || viewerShareEntry != null;
 
     return Material(
       color: cardFill,
@@ -2231,6 +2564,15 @@ class _NoteListTile extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         NoteSyncStatusIndicator(status: note.syncStatus),
+                        if (isSharedNote) ...[
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.people_alt_rounded,
+                            key: Key('note-tile-shared-indicator-${note.id}'),
+                            color: inkColor,
+                            size: 15,
+                          ),
+                        ],
                         if (note.isPasswordProtected) ...[
                           const SizedBox(width: 6),
                           Icon(
@@ -2324,6 +2666,18 @@ class _NoteListTile extends StatelessWidget {
                             : FontStyle.normal,
                       ),
                     ),
+                    if (viewerShareEntry != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '${viewerShareEntry!.permission.label} • Shared by ${viewerShareEntry!.sharedByEmail} (${_formatShortDate(viewerShareEntry!.sharedAt)})',
+                        key: Key('note-tile-shared-by-${note.id}'),
+                        style: text.labelSmall?.copyWith(
+                          color: subInkColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                     if (note.labels.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Wrap(

@@ -58,6 +58,110 @@ enum NoteAttachmentKind {
   }
 }
 
+/// Access level granted to a recipient when sharing a note (R25, R26).
+enum NoteSharePermission {
+  readOnly,
+  edit;
+
+  String get label {
+    switch (this) {
+      case NoteSharePermission.readOnly:
+        return 'Read-only';
+      case NoteSharePermission.edit:
+        return 'Editable';
+    }
+  }
+}
+
+/// Represents a single recipient share record on a [Note] (R25, R26).
+class NoteShareEntry {
+  const NoteShareEntry({
+    required this.recipientEmail,
+    required this.permission,
+    required this.sharedAt,
+    required this.sharedByEmail,
+    this.recipientUid,
+    this.sharedByUid,
+  });
+
+  final String recipientEmail;
+  final String? recipientUid;
+  final NoteSharePermission permission;
+  final DateTime sharedAt;
+  final String sharedByEmail;
+  final String? sharedByUid;
+
+  String get normalizedRecipientEmail => recipientEmail.trim().toLowerCase();
+
+  NoteShareEntry copyWith({
+    String? recipientEmail,
+    String? recipientUid,
+    NoteSharePermission? permission,
+    DateTime? sharedAt,
+    String? sharedByEmail,
+    String? sharedByUid,
+  }) {
+    return NoteShareEntry(
+      recipientEmail: recipientEmail ?? this.recipientEmail,
+      recipientUid: recipientUid ?? this.recipientUid,
+      permission: permission ?? this.permission,
+      sharedAt: sharedAt ?? this.sharedAt,
+      sharedByEmail: sharedByEmail ?? this.sharedByEmail,
+      sharedByUid: sharedByUid ?? this.sharedByUid,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'recipientEmail': normalizedRecipientEmail,
+    if (recipientUid != null) 'recipientUid': recipientUid,
+    'permission': permission.name,
+    'sharedAt': sharedAt.toIso8601String(),
+    'sharedByEmail': sharedByEmail,
+    if (sharedByUid != null) 'sharedByUid': sharedByUid,
+  };
+
+  factory NoteShareEntry.fromJson(Map<String, dynamic> json) {
+    final permValue = json['permission']?.toString();
+    return NoteShareEntry(
+      recipientEmail: (json['recipientEmail']?.toString() ?? '')
+          .trim()
+          .toLowerCase(),
+      recipientUid: json['recipientUid']?.toString(),
+      permission: NoteSharePermission.values.firstWhere(
+        (value) => value.name == permValue,
+        orElse: () => NoteSharePermission.readOnly,
+      ),
+      sharedAt:
+          DateTime.tryParse(json['sharedAt']?.toString() ?? '') ??
+          DateTime.now(),
+      sharedByEmail: json['sharedByEmail']?.toString() ?? 'Owner',
+      sharedByUid: json['sharedByUid']?.toString(),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is NoteShareEntry &&
+        other.normalizedRecipientEmail == normalizedRecipientEmail &&
+        other.recipientUid == recipientUid &&
+        other.permission == permission &&
+        other.sharedAt == sharedAt &&
+        other.sharedByEmail == sharedByEmail &&
+        other.sharedByUid == sharedByUid;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    normalizedRecipientEmail,
+    recipientUid,
+    permission,
+    sharedAt,
+    sharedByEmail,
+    sharedByUid,
+  );
+}
+
 class NoteAttachment {
   const NoteAttachment({
     required this.id,
@@ -177,11 +281,13 @@ class Note {
     this.isPinned = false,
     this.pinnedAt,
     this.ownerUid,
+    this.ownerEmail,
     this.status = NoteStatus.normal,
     this.syncStatus = NoteSyncStatus.pending,
     this.attachments = const <NoteAttachment>[],
     this.passwordHash,
     this.passwordSalt,
+    this.shares = const <NoteShareEntry>[],
   });
 
   final String id;
@@ -193,11 +299,13 @@ class Note {
   final bool isPinned;
   final DateTime? pinnedAt;
   final String? ownerUid;
+  final String? ownerEmail;
   final NoteStatus status;
   final NoteSyncStatus syncStatus;
   final List<NoteAttachment> attachments;
   final String? passwordHash;
   final String? passwordSalt;
+  final List<NoteShareEntry> shares;
 
   /// Whether this note is protected by an individual note password (R23).
   bool get isPasswordProtected =>
@@ -205,6 +313,54 @@ class Note {
       passwordHash!.isNotEmpty &&
       passwordSalt != null &&
       passwordSalt!.isNotEmpty;
+
+  /// Whether this note has been shared with one or more recipients (R18, R25).
+  bool get isShared => shares.isNotEmpty;
+
+  /// Finds the [NoteShareEntry] matching [uid] or [email], if any.
+  NoteShareEntry? shareFor({String? uid, String? email}) {
+    final cleanEmail = email?.trim().toLowerCase();
+    for (final entry in shares) {
+      if (uid != null &&
+          uid.isNotEmpty &&
+          entry.recipientUid != null &&
+          entry.recipientUid == uid) {
+        return entry;
+      }
+      if (cleanEmail != null &&
+          cleanEmail.isNotEmpty &&
+          entry.normalizedRecipientEmail == cleanEmail) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  /// Whether the given [uid] / [email] is the owner of this note.
+  bool isOwnedBy({String? uid, String? email}) {
+    if (ownerUid == null && ownerEmail == null) return true;
+    if (uid != null && ownerUid != null && uid == ownerUid) return true;
+    final cleanEmail = email?.trim().toLowerCase();
+    if (cleanEmail != null &&
+        ownerEmail != null &&
+        cleanEmail == ownerEmail!.trim().toLowerCase()) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Whether the given [uid] / [email] is permitted to edit this note (R25, R26).
+  bool canEdit({String? uid, String? email}) {
+    if (isOwnedBy(uid: uid, email: email)) return true;
+    final share = shareFor(uid: uid, email: email);
+    return share?.permission == NoteSharePermission.edit;
+  }
+
+  /// Whether the given [uid] / [email] is permitted to view this note (R25).
+  bool canRead({String? uid, String? email}) {
+    if (isOwnedBy(uid: uid, email: email)) return true;
+    return shareFor(uid: uid, email: email) != null;
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -216,6 +372,7 @@ class Note {
     'isPinned': isPinned,
     'pinnedAt': pinnedAt?.toIso8601String(),
     'ownerUid': ownerUid,
+    if (ownerEmail != null) 'ownerEmail': ownerEmail,
     'status': status.name,
     'syncStatus': syncStatus.name,
     'attachments': attachments
@@ -223,6 +380,8 @@ class Note {
         .toList(),
     if (passwordHash != null) 'passwordHash': passwordHash,
     if (passwordSalt != null) 'passwordSalt': passwordSalt,
+    if (shares.isNotEmpty)
+      'shares': shares.map((share) => share.toJson()).toList(),
   };
 
   factory Note.fromJson(Map<String, dynamic> json) {
@@ -238,6 +397,15 @@ class Note {
             )
             .toList() ??
         const <NoteAttachment>[];
+    final shares =
+        (json['shares'] as List?)
+            ?.whereType<Map>()
+            .map(
+              (item) =>
+                  NoteShareEntry.fromJson(Map<String, dynamic>.from(item)),
+            )
+            .toList() ??
+        const <NoteShareEntry>[];
     final statusValue = json['status']?.toString();
     final syncStatusValue = json['syncStatus']?.toString();
 
@@ -255,6 +423,7 @@ class Note {
           ? null
           : DateTime.tryParse(json['pinnedAt'].toString()),
       ownerUid: json['ownerUid']?.toString(),
+      ownerEmail: json['ownerEmail']?.toString(),
       status: NoteStatus.values.firstWhere(
         (value) => value.name == statusValue,
         orElse: () => NoteStatus.normal,
@@ -266,6 +435,7 @@ class Note {
       attachments: attachments,
       passwordHash: json['passwordHash']?.toString(),
       passwordSalt: json['passwordSalt']?.toString(),
+      shares: shares,
     );
   }
 
@@ -280,12 +450,14 @@ class Note {
     DateTime? pinnedAt,
     bool clearPinnedAt = false,
     String? ownerUid,
+    String? ownerEmail,
     NoteStatus? status,
     NoteSyncStatus? syncStatus,
     List<NoteAttachment>? attachments,
     String? passwordHash,
     String? passwordSalt,
     bool clearPasswordProtection = false,
+    List<NoteShareEntry>? shares,
   }) {
     return Note(
       id: id ?? this.id,
@@ -297,6 +469,7 @@ class Note {
       isPinned: isPinned ?? this.isPinned,
       pinnedAt: clearPinnedAt ? null : pinnedAt ?? this.pinnedAt,
       ownerUid: ownerUid ?? this.ownerUid,
+      ownerEmail: ownerEmail ?? this.ownerEmail,
       status: status ?? this.status,
       syncStatus: syncStatus ?? this.syncStatus,
       attachments: attachments ?? this.attachments,
@@ -306,6 +479,7 @@ class Note {
       passwordSalt: clearPasswordProtection
           ? null
           : (passwordSalt ?? this.passwordSalt),
+      shares: shares ?? this.shares,
     );
   }
 }

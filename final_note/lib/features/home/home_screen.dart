@@ -24,6 +24,7 @@ class HomeScreen extends ConsumerWidget {
 
     final authAction = ref.watch(authActionsProvider);
     final notesAsync = ref.watch(accountNotesStreamProvider);
+    final sharedNotesAsync = ref.watch(accountSharedNotesStreamProvider);
     final labelsAsync = ref.watch(accountLabelsStreamProvider);
     // Keep noteActionsProvider alive while HomeScreen is mounted so async saves
     // are never cancelled by autoDispose mid-flight.
@@ -34,6 +35,10 @@ class HomeScreen extends ConsumerWidget {
     final hasError = notesAsync.hasError;
     final notes = (!isLoading && !hasError)
         ? (notesAsync.asData?.value ?? const <Note>[])
+        : const <Note>[];
+    final sharedNotes =
+        (!sharedNotesAsync.isLoading && !sharedNotesAsync.hasError)
+        ? (sharedNotesAsync.asData?.value ?? const <Note>[])
         : const <Note>[];
     final labels = (!labelsAsync.isLoading && !labelsAsync.hasError)
         ? (labelsAsync.asData?.value ?? const <String>[])
@@ -49,6 +54,7 @@ class HomeScreen extends ConsumerWidget {
       authError: authAction.error,
       onLogout: ref.read(authActionsProvider.notifier).signOut,
       notes: notes,
+      sharedNotes: sharedNotes,
       labels: labels,
       isLoading: isLoading,
       errorMessage: hasError ? 'Không thể tải danh sách ghi chú.' : null,
@@ -117,6 +123,38 @@ class HomeScreen extends ConsumerWidget {
       },
       isNoteUnlocked: noteActions.isNoteUnlocked,
       onLockNoteSession: noteActions.lockNoteSession,
+      onShareNote: (noteId, recipientEmail, permission) async {
+        final updated = await noteActions.shareNote(
+          noteId,
+          recipientEmail: recipientEmail,
+          permission: permission,
+        );
+        return (
+          note: updated,
+          error: updated == null ? ref.read(noteActionsProvider).error : null,
+        );
+      },
+      onUpdateSharePermission: (noteId, recipientEmail, permission) async {
+        final updated = await noteActions.updateSharePermission(
+          noteId,
+          recipientEmail: recipientEmail,
+          permission: permission,
+        );
+        return (
+          note: updated,
+          error: updated == null ? ref.read(noteActionsProvider).error : null,
+        );
+      },
+      onRevokeShare: (noteId, recipientEmail) async {
+        final updated = await noteActions.revokeShare(
+          noteId,
+          recipientEmail: recipientEmail,
+        );
+        return (
+          note: updated,
+          error: updated == null ? ref.read(noteActionsProvider).error : null,
+        );
+      },
     );
   }
 }

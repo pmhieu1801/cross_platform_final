@@ -78,4 +78,38 @@ abstract class NoteRepository {
 
   /// Explicitly locks a note again in the active session for [uid].
   void lockNoteSession(String uid, String noteId);
+
+  /// Registers a known account identity `(uid, email)` so email-based sharing
+  /// can resolve recipients and validate registered accounts (R25).
+  void registerAccountIdentity({required String uid, required String email});
+
+  /// Watches notes shared WITH the given account ([uid] / [email]) in real time (R25, R26).
+  Stream<List<Note>> watchSharedWithMe(String uid, {String? email});
+
+  /// Lists notes shared WITH the given account ([uid] / [email]) (R25).
+  Future<List<Note>> listSharedWithMe(String uid, {String? email});
+
+  /// Shares [noteId] owned by [ownerUid] with [recipientEmail] at [permission] (R25).
+  Future<Note> shareNote(
+    String ownerUid,
+    String noteId, {
+    required String recipientEmail,
+    required NoteSharePermission permission,
+    String? ownerEmail,
+  });
+
+  /// Updates an existing recipient's [permission] on [noteId] owned by [ownerUid] (R25).
+  Future<Note> updateSharePermission(
+    String ownerUid,
+    String noteId, {
+    required String recipientEmail,
+    required NoteSharePermission permission,
+  });
+
+  /// Revokes [recipientEmail]'s access to [noteId] owned by [ownerUid] (R25).
+  Future<Note> revokeShare(
+    String ownerUid,
+    String noteId, {
+    required String recipientEmail,
+  });
 }
