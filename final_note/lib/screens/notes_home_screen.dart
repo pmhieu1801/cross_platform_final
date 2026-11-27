@@ -12,6 +12,8 @@ import '../theme/theme.dart';
 import '../widgets/widgets.dart';
 import 'note_editor_sheet.dart';
 
+part 'quick_settings_panel.dart';
+
 enum _NotesSection { all, pinned, shared }
 
 enum _NotesLayout { grid, list }
@@ -41,6 +43,7 @@ class NotesHomeScreen extends StatefulWidget {
     this.viewModeEnabled = true,
     this.preferencesError,
     this.noteFontScale = 1,
+    this.onNoteFontScaleChanged,
     this.onSaveNote,
     this.onDeleteNote,
     this.onTogglePin,
@@ -94,6 +97,7 @@ class NotesHomeScreen extends StatefulWidget {
   final bool viewModeEnabled;
   final String? preferencesError;
   final double noteFontScale;
+  final ValueChanged<double>? onNoteFontScaleChanged;
 
   /// External persistence callbacks. When omitted, mutations update local state.
   final Future<Note?> Function(Note note, {required bool isAutosave})?
@@ -826,12 +830,77 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     return Theme.of(context).brightness == Brightness.light;
   }
 
-  void _toggleLightDarkTheme(BuildContext context) {
-    if (widget.onThemeModeChanged == null) return;
-    final nextMode = _isLightThemeActive(context)
-        ? PreferenceThemeMode.dark
-        : PreferenceThemeMode.light;
-    widget.onThemeModeChanged!(nextMode);
+  final MenuController _sidebarSettingsMenu = MenuController();
+  final MenuController _headerSettingsMenu = MenuController();
+
+  bool get _hasQuickSettings =>
+      widget.onPreferences != null || widget.onThemeModeChanged != null;
+
+  void _changeLayout(_NotesLayout layout) {
+    if (widget.onViewModeChanged != null) {
+      widget.onViewModeChanged!(
+        layout == _NotesLayout.grid ? NotesViewMode.grid : NotesViewMode.list,
+      );
+    } else {
+      setState(() => _localLayout = layout);
+    }
+  }
+
+  /// Settings popover anchored to the gear button (theme switch, view mode,
+  /// note text size) so users never leave the notes screen for quick tweaks.
+  Widget _buildQuickSettingsButton(
+    BuildContext context, {
+    required MenuController controller,
+    double iconSize = 20,
+    Color? iconColor,
+  }) {
+    final layoutEnabled =
+        widget.viewModeEnabled &&
+        (widget.viewMode == null || widget.onViewModeChanged != null);
+    return MenuAnchor(
+      controller: controller,
+      alignmentOffset: const Offset(0, 8),
+      style: MenuStyle(
+        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+        elevation: const WidgetStatePropertyAll(10),
+        backgroundColor: WidgetStatePropertyAll(context.colors.surface),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: BorderSide(color: context.tokens.glassBorder),
+          ),
+        ),
+      ),
+      menuChildren: [
+        _QuickSettingsPanel(
+          isDark: !_isLightThemeActive(context),
+          onDarkChanged: widget.onThemeModeChanged == null
+              ? null
+              : (dark) => widget.onThemeModeChanged!(
+                  dark ? PreferenceThemeMode.dark : PreferenceThemeMode.light,
+                ),
+          layout: _layout,
+          onLayoutChanged: layoutEnabled ? _changeLayout : null,
+          fontScale: widget.noteFontScale,
+          onFontScaleChanged: widget.onNoteFontScaleChanged,
+          onOpenAllSettings: widget.onPreferences == null
+              ? null
+              : () {
+                  controller.close();
+                  widget.onPreferences!();
+                },
+        ),
+      ],
+      builder: (context, menu, child) => IconButton(
+        key: const Key('open-quick-settings'),
+        tooltip: 'Settings',
+        visualDensity: VisualDensity.compact,
+        onPressed: widget.authBusy
+            ? null
+            : () => menu.isOpen ? menu.close() : menu.open(),
+        icon: Icon(Icons.settings_outlined, size: iconSize, color: iconColor),
+      ),
+    );
   }
 
   void _openManageLabelsDialog() {
@@ -1314,69 +1383,67 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                         ],
                       ),
                     ),
-                    if (widget.onProfile != null)
-                      IconButton(
-                        key: const Key('open-profile'),
-                        tooltip: 'Profile',
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.all(4),
-                        constraints: const BoxConstraints(),
-                        onPressed: widget.authBusy ? null : widget.onProfile,
-                        icon: Icon(
-                          Icons.person_outline_rounded,
-                          size: 16,
-                          color: tokens.textMuted,
-                        ),
-                      ),
-                    if (widget.onPreferences != null)
-                      IconButton(
-                        key: const Key('open-preferences'),
-                        tooltip: 'Settings',
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.all(4),
-                        constraints: const BoxConstraints(),
-                        onPressed: widget.authBusy
-                            ? null
-                            : widget.onPreferences,
-                        icon: Icon(
-                          Icons.settings_outlined,
-                          size: 16,
-                          color: tokens.textMuted,
-                        ),
-                      ),
-                    if (widget.onChangePassword != null)
-                      IconButton(
-                        key: const Key('open-change-password'),
-                        tooltip: 'Change password',
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.all(4),
-                        constraints: const BoxConstraints(),
-                        onPressed: widget.authBusy
-                            ? null
-                            : widget.onChangePassword,
-                        icon: Icon(
-                          Icons.lock_reset_rounded,
-                          size: 16,
-                          color: tokens.textMuted,
-                        ),
-                      ),
-                    if (widget.onLogout != null)
-                      IconButton(
-                        key: const Key('logout'),
-                        tooltip: 'Đăng xuất',
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.all(4),
-                        constraints: const BoxConstraints(),
-                        onPressed: widget.authBusy ? null : widget.onLogout,
-                        icon: Icon(
-                          Icons.logout_rounded,
-                          size: 16,
-                          color: tokens.textMuted,
-                        ),
-                      ),
                   ],
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Container(
+            key: const Key('sidebar-account-actions'),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerHighest.withValues(alpha: 0.45),
+              borderRadius: AppRadius.pillAll,
+              border: Border.all(color: tokens.glassBorder),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                if (widget.onProfile != null)
+                  IconButton(
+                    key: const Key('open-profile'),
+                    tooltip: 'Profile',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.authBusy ? null : widget.onProfile,
+                    icon: Icon(
+                      Icons.person_outline_rounded,
+                      size: 19,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                if (_hasQuickSettings)
+                  _buildQuickSettingsButton(
+                    context,
+                    controller: _sidebarSettingsMenu,
+                    iconSize: 19,
+                    iconColor: colors.onSurfaceVariant,
+                  ),
+                if (widget.onChangePassword != null)
+                  IconButton(
+                    key: const Key('open-change-password'),
+                    tooltip: 'Change password',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.authBusy ? null : widget.onChangePassword,
+                    icon: Icon(
+                      Icons.lock_reset_rounded,
+                      size: 19,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                if (widget.onLogout != null)
+                  IconButton(
+                    key: const Key('logout'),
+                    tooltip: 'Đăng xuất',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.authBusy ? null : widget.onLogout,
+                    icon: Icon(
+                      Icons.logout_rounded,
+                      size: 19,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
@@ -1684,13 +1751,8 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               onPressed: widget.authBusy ? null : widget.onProfile,
               icon: const Icon(Icons.person_outline_rounded),
             ),
-          if (widget.onPreferences != null)
-            IconButton(
-              key: const Key('open-preferences'),
-              tooltip: 'Settings',
-              onPressed: widget.authBusy ? null : widget.onPreferences,
-              icon: const Icon(Icons.settings_outlined),
-            ),
+          if (_hasQuickSettings)
+            _buildQuickSettingsButton(context, controller: _headerSettingsMenu),
           if (widget.onLogout != null)
             OutlinedButton.icon(
               key: const Key('logout'),
@@ -1821,31 +1883,6 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
-            if (widget.onThemeModeChanged != null) ...[
-              Builder(
-                builder: (context) {
-                  final isLight = _isLightThemeActive(context);
-                  return OutlinedButton.icon(
-                    key: const Key('quick-theme-toggle-button'),
-                    onPressed: () => _toggleLightDarkTheme(context),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                        vertical: AppSpacing.sm + 2,
-                      ),
-                    ),
-                    icon: Icon(
-                      isLight
-                          ? Icons.dark_mode_outlined
-                          : Icons.light_mode_rounded,
-                      size: 17,
-                    ),
-                    label: Text(isLight ? 'Dark mode' : 'White mode'),
-                  );
-                },
-              ),
-              const SizedBox(width: AppSpacing.sm),
-            ],
             FilledButton.icon(
               key: const Key('open-ai-qa-button'),
               style: FilledButton.styleFrom(

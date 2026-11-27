@@ -83,7 +83,9 @@ void main() {
   }
 
   Future<void> open(WidgetTester tester) async {
-    await tester.ensureVisible(find.byKey(const Key('open-preferences')));
+    await tester.ensureVisible(find.byKey(const Key('open-quick-settings')));
+    await tester.tap(find.byKey(const Key('open-quick-settings')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('open-preferences')));
     await tester.pumpAndSettle();
   }

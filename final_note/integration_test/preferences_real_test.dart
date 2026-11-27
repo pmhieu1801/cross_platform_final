@@ -181,9 +181,14 @@ void main() {
       );
       await waitFor(
         () =>
-            find.byKey(const Key('open-preferences')).evaluate().isNotEmpty &&
+            find
+                .byKey(const Key('open-quick-settings'))
+                .evaluate()
+                .isNotEmpty &&
             !scope.read(accountPreferencesProvider).isLoading,
       );
+      await tester.tap(find.byKey(const Key('open-quick-settings')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('open-preferences')));
       await tester.pumpAndSettle();
       await choose('preferences-theme', 'Light');

@@ -83,6 +83,9 @@ class HomeScreen extends ConsumerWidget {
           .read(accountPreferencesProvider.notifier)
           .setViewMode,
       noteFontScale: preferences.noteFontScale,
+      onNoteFontScaleChanged: ref
+          .read(accountPreferencesProvider.notifier)
+          .setNoteFontScale,
       notes: notes,
       sharedNotes: sharedNotes,
       labels: labels,

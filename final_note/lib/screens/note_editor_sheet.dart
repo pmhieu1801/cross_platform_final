@@ -1332,6 +1332,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
         DropdownButtonFormField<NoteStatus>(
           initialValue: _status,
           dropdownColor: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          menuMaxHeight: 360,
+          elevation: 6,
           iconEnabledColor: inkColor,
           iconDisabledColor: subInkColor,
           style: text.bodyMedium?.copyWith(
