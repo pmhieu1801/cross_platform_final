@@ -11,11 +11,18 @@ import '../domain/avatar_repository.dart';
 /// Account-scoped local avatar store and [AvatarRepository] implementation (R06).
 ///
 /// Validates uploaded image bytes using [AvatarImageValidator] (PNG/JPEG,
-/// <= 2 MiB, <= 4096x4096) and stores the encoded bytes per authenticated UID
+/// <= 5 MiB, <= 8192x8192) and stores the encoded bytes per authenticated UID
 /// in [SharedPreferences], issuing an [AvatarUploadReceipt] with a safe HTTPS
 /// identifier (`https://avatar.noteflow.local/<uid>/<storageKey>`).
 class LocalAvatarRepository implements AvatarRepository {
-  LocalAvatarRepository({this.validator = const AvatarImageValidator()});
+  LocalAvatarRepository({
+    this.validator = const AvatarImageValidator(
+      policy: AvatarValidationPolicy(
+        maxBytes: 5 * 1024 * 1024,
+        maxDimension: 8192,
+      ),
+    ),
+  });
 
   final AvatarImageValidator validator;
   static const _storagePrefix = 'noteflow_account_avatar_v1_';

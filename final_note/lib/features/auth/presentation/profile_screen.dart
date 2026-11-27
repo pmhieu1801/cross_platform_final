@@ -47,7 +47,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Choose an image file from your device (PNG/JPEG <= 2 MiB) or select a preset:',
+                      'Choose an image file from your device (PNG/JPEG <= 5 MB) or select a preset:',
                       style: dialogContext.text.bodySmall,
                     ),
                     const SizedBox(height: AppSpacing.sm),
@@ -55,21 +55,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       key: const Key('avatar-pick-device-file'),
                       onPressed: () async {
                         try {
-                          final file = await FilePicker.pickFile(
+                          final files = await FilePicker.pickFiles(
                             type: FileType.custom,
                             allowedExtensions: const ['png', 'jpg', 'jpeg'],
                           );
-                          if (file == null) return;
+                          if (files.isEmpty) return;
+                          final file = files.first;
                           final bytes = await file.readAsBytes();
-                          final ext = file.extension?.toLowerCase();
-                          final mime = ext == 'png'
-                              ? 'image/png'
-                              : 'image/jpeg';
                           if (dialogContext.mounted) {
                             Navigator.of(dialogContext)
-                                .pop((bytes: bytes, mime: mime, remove: false));
+                                .pop((bytes: bytes, mime: null, remove: false));
                           }
-                        } catch (_) {}
+                        } catch (error) {
+                          if (dialogContext.mounted) {
+                            Navigator.of(dialogContext).pop((
+                              bytes: Uint8List(0),
+                              mime: null,
+                              remove: false,
+                            ));
+                          }
+                        }
                       },
                       icon: const Icon(Icons.folder_open_rounded, size: 18),
                       label: const Text('Choose image from device'),
