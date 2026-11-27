@@ -87,6 +87,57 @@ class AvatarImageValidator {
     }
   }
 
+  /// Validates signature/size, then decodes with a capped target size (safe for
+  /// large 4K/8K photos on Flutter Web) and re-encodes a compact square-ish PNG
+  /// avatar so it always fits local storage quotas.
+  Future<AvatarImage> normalizeForAvatar(
+    Uint8List bytes, {
+    String? declaredMimeType,
+    int targetWidth = 384,
+  }) async {
+    if (bytes.isEmpty) {
+      throw const AvatarValidationFailure('Ảnh không có dữ liệu.');
+    }
+    if (bytes.lengthInBytes > policy.maxBytes) {
+      throw const AvatarValidationFailure('Ảnh vượt quá dung lượng cho phép.');
+    }
+    final stableBytes = Uint8List.fromList(bytes);
+    // Throws for anything that is not a real PNG/JPEG signature.
+    _contentType(stableBytes);
+
+    ui.Codec? codec;
+    ui.Image? decoded;
+    try {
+      codec = await ui.instantiateImageCodec(
+        stableBytes,
+        targetWidth: targetWidth,
+      );
+      final frame = await codec.getNextFrame();
+      decoded = frame.image;
+      final data = await decoded.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null) {
+        throw const AvatarValidationFailure(
+          'Ảnh bị lỗi hoặc không giải mã được.',
+        );
+      }
+      return AvatarImage(
+        bytes: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        contentType: 'image/png',
+        width: decoded.width,
+        height: decoded.height,
+      );
+    } on AvatarValidationFailure {
+      rethrow;
+    } catch (_) {
+      throw const AvatarValidationFailure(
+        'Ảnh bị lỗi hoặc không giải mã được.',
+      );
+    } finally {
+      decoded?.dispose();
+      codec?.dispose();
+    }
+  }
+
   String _contentType(Uint8List bytes) {
     const png = [137, 80, 78, 71, 13, 10, 26, 10];
     if (bytes.length >= png.length &&
