@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -46,8 +47,32 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Choose a validated PNG/JPEG avatar preset (<= 2 MiB) or paste base64 PNG/JPEG bytes:',
+                      'Choose an image file from your device (PNG/JPEG <= 2 MiB) or select a preset:',
                       style: dialogContext.text.bodySmall,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    FilledButton.tonalIcon(
+                      key: const Key('avatar-pick-device-file'),
+                      onPressed: () async {
+                        try {
+                          final file = await FilePicker.pickFile(
+                            type: FileType.custom,
+                            allowedExtensions: const ['png', 'jpg', 'jpeg'],
+                          );
+                          if (file == null) return;
+                          final bytes = await file.readAsBytes();
+                          final ext = file.extension?.toLowerCase();
+                          final mime = ext == 'png'
+                              ? 'image/png'
+                              : 'image/jpeg';
+                          if (dialogContext.mounted) {
+                            Navigator.of(dialogContext)
+                                .pop((bytes: bytes, mime: mime, remove: false));
+                          }
+                        } catch (_) {}
+                      },
+                      icon: const Icon(Icons.folder_open_rounded, size: 18),
+                      label: const Text('Choose image from device'),
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Wrap(

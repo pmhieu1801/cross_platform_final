@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 
 import '../features/notes/application/note_ai_service.dart';
 import '../features/notes/application/note_attachment_service.dart';
@@ -339,7 +343,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   Future<void> _addAttachment(NoteAttachmentKind kind) async {
     final outcome = widget.attachmentPicker != null
         ? await widget.attachmentPicker!(kind)
-        : await _showAttachmentPickerDialog(kind);
+        : await _pickFromDeviceFileSystem(kind);
     if (!mounted) return;
 
     if (outcome.cancelled) {
@@ -376,6 +380,65 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     });
     if (added.isNotEmpty) {
       _markPendingAndScheduleAutosave();
+    }
+  }
+
+  Future<AttachmentPickOutcome> _pickFromDeviceFileSystem(
+    NoteAttachmentKind kind,
+  ) async {
+    try {
+      final allowedExtensions = switch (kind) {
+        NoteAttachmentKind.image =>
+          NoteAttachmentValidator.allowedImageExtensions.toList(),
+        NoteAttachmentKind.video =>
+          NoteAttachmentValidator.allowedVideoExtensions.toList(),
+        NoteAttachmentKind.file =>
+          NoteAttachmentValidator.allowedFileExtensions.toList(),
+      };
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: allowedExtensions,
+      );
+      if (files.isEmpty) {
+        return const AttachmentPickOutcome.cancelled();
+      }
+      final candidates = <PickedAttachmentCandidate>[];
+      for (final file in files) {
+        final safePath = kIsWeb
+            ? 'device://${file.name}'
+            : (file.path ?? 'device://${file.name}');
+        final sizeBytes = file.lengthSync() ?? (await file.length()) ?? 0;
+        Uint8List? bytes;
+        if (kind == NoteAttachmentKind.image &&
+            sizeBytes > 0 &&
+            sizeBytes <= kMaxInlinePreviewBytes) {
+          try {
+            bytes = await file.readAsBytes();
+          } catch (_) {}
+        }
+        candidates.add(
+          PickedAttachmentCandidate(
+            name: file.name,
+            kind: kind,
+            sizeBytes: bytes?.length ?? sizeBytes,
+            localPath: safePath,
+            bytes: bytes,
+          ),
+        );
+      }
+      return AttachmentPickOutcome.picked(candidates);
+    } on PlatformException catch (error) {
+      final code = error.code.toLowerCase();
+      if (code.contains('permission') || code.contains('denied')) {
+        return AttachmentPickOutcome.permissionDenied(
+          error.message ?? 'Permission to access files or media was denied. Please grant access and try again.',
+        );
+      }
+      return AttachmentPickOutcome.failure(
+        error.message ?? 'Could not open device file picker.',
+      );
+    } catch (_) {
+      return _showAttachmentPickerDialog(kind);
     }
   }
 

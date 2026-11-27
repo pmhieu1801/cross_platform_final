@@ -1136,14 +1136,16 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               ),
             ),
           ),
-          floatingActionButton: FloatingActionButton.extended(
-            key: const Key('create-note-button'),
-            onPressed: () => _openEditor(isWide: isWide),
-            backgroundColor: AppColors.charcoal,
-            foregroundColor: Colors.white,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('New note'),
-          ),
+          floatingActionButton: showSideEditor
+              ? null
+              : FloatingActionButton.extended(
+                  key: const Key('create-note-button'),
+                  onPressed: () => _openEditor(isWide: isWide),
+                  backgroundColor: AppColors.charcoal,
+                  foregroundColor: Colors.white,
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('New note'),
+                ),
           bottomNavigationBar: isWide
               ? null
               : NavigationBar(
