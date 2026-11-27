@@ -4,11 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../models/note.dart';
 import '../../auth/application/auth_providers.dart';
-import '../data/in_memory_note_repository.dart';
+import '../data/local_note_repository.dart';
 import '../domain/note_repository.dart';
 
 final noteRepositoryProvider = Provider<NoteRepository>((ref) {
-  final repository = InMemoryNoteRepository(persistToLocalStorage: true);
+  final repository = LocalNoteRepository();
   ref.onDispose(repository.dispose);
   return repository;
 });

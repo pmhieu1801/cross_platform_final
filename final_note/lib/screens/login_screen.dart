@@ -10,12 +10,14 @@ class LoginScreen extends StatefulWidget {
     super.key,
     this.onSubmit,
     this.onCreateAccount,
+    this.onForgotPassword,
     this.isLoading = false,
     this.error,
   });
 
   final Future<void> Function(String email, String password)? onSubmit;
   final VoidCallback? onCreateAccount;
+  final VoidCallback? onForgotPassword;
   final bool isLoading;
   final String? error;
 
@@ -57,16 +59,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (context) => const RegisterScreen()),
-    );
-  }
-
-  void _showResetNotice() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Password recovery will be available when authentication is set up.',
-        ),
-      ),
     );
   }
 
@@ -219,7 +211,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: widget.isLoading ? null : _showResetNotice,
+                  onPressed: widget.isLoading ? null : widget.onForgotPassword,
                   style: TextButton.styleFrom(
                     padding: EdgeInsets.zero,
                     minimumSize: Size.zero,

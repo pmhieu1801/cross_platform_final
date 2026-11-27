@@ -9,7 +9,7 @@ Source: `lib/features/auth/domain/auth_repository.dart`, `application/auth_provi
 | Thành phần | Contract |
 | --- | --- |
 | AuthUser | uid:String, email:String?, displayName:String?, emailVerified:bool; snapshot bất biến, không có password/token |
-| AuthRepository | watchSession(), signIn(email,password), register(email,displayName,password) → RegistrationResult, signOut(), sendVerificationEmail(expectedUid), refreshCurrentUser(expectedUid) |
+| AuthRepository | watchSession(), signIn(email,password), register(email,displayName,password) → RegistrationResult, signOut(), sendVerificationEmail(expectedUid), refreshCurrentUser(expectedUid), requestPasswordReset(email) |
 | RegistrationResult (W2-01) | uid, verificationSent, warning; account đã tồn tại dù bước tên/mail thất bại; không chứa password/token/action code |
 | verificationActionsProvider(uid) (W2-01) | sending/refreshing/retryAt/message/error; resend()/refresh(); feedback theo UID và lease, cooldown gửi lại 60 giây trong tiến trình |
 | authSessionProvider | AsyncValue<AuthUser?>: loading chưa biết phiên; data(null) signed out; data(user) signed in; error không xác định được phiên |
@@ -27,7 +27,7 @@ Firebase adapter dùng `userChanges()`: bao gồm các sự kiện của `authSt
 3. Public W1: `/login`, `/register`. Private: `/home`; route mới mặc định private. `/session` là màn hình kỹ thuật chờ/error, không chứa dữ liệu người dùng.
 4. Checking/error → `/session`; signed out + private URL/Back → `/login`; signed in + auth route → `/home`. Guard không giữ return URL và luôn về home sau login (lựa chọn W1).
 5. Web dùng URL hash mặc định `/#/home`; không đổi sang path strategy khi chưa cấu hình hosting rewrite. Unknown route với signed-in có trang not-found; signed-out vẫn redirect.
-6. W2 phải bổ sung activation/reset public routes vào allowlist khi thật sự có implementation.
+6. W2-02 thêm `/forgot-password` vào allowlist cho phiên signed-out. Signed-in về home. Activation và trang nhập mật khẩu mới đều được mở bằng trang HTTPS do Firebase host.
 
 Guard chỉ bảo vệ UI. M3 vẫn phải kiểm tra `request.auth.uid` và quyền note/share/attachment ở backend/rules. Hiện M1 không tạo rules, không mở Firestore/Storage và không triển khai schema dữ liệu.
 
@@ -40,6 +40,14 @@ W2-01: tài khoản đăng ký thành công tự có session. Adapter thử cậ
 Handler lựa chọn cho W2-01 là trang HTTPS mặc định Firebase, mở trong browser cả Web/Android. Không có continue URL, custom Flutter action route hoặc Dynamic Links; không lấy/lưu/log action code trong app. Không cần đổi public route allowlist cho handler ngoài app. Kiểm thử địa chỉ triển khai Web cuối vẫn cần riêng; xem [evidence W2](m1-week2-verification.md), không suy full R1/R2 từ fake tests/build.
 
 M2 khi đưa Notes vào private shell cần giữ VerificationBanner theo UID ở shell dùng chung. W2-01 chỉ nối banner vào HomeScreen hiện có, không tạo hoặc thay Notes UI/repository. M3 review UID/SDK boundary; schema/rules không thay đổi. Contract API mới là implementation M1 chờ review, chưa phải signoff nhóm.
+
+## Khôi phục mật khẩu W2-02
+
+Form công khai gọi `passwordResetProvider` → `AuthRepository.requestPasswordReset(email)` → `FirebaseAuth.sendPasswordResetEmail`. Firebase tạo link cho email đã đăng ký. Controller chặn submit khi đang gửi và bỏ kết quả nếu màn hình bị hủy hoặc phiên thay đổi. Nếu Firebase trả `user-not-found` ở project cũ, adapter trả cùng kết quả trung tính như project bật email enumeration protection. Lỗi mạng, email sai và giới hạn gửi vẫn báo lỗi để người dùng thử lại.
+
+Trang Firebase HTTPS nhận mã một lần, kiểm tra link và đặt mật khẩu mới. NoteFlow không nhận mã, mật khẩu mới hay continue URL từ handler. Quay lại app, người dùng đăng nhập thủ công qua màn Login. `userChanges()` tiếp tục là nguồn phiên. Xem [Firebase Auth Flutter](https://firebase.google.com/docs/auth/flutter/manage-users) và [Email enumeration protection](https://docs.cloud.google.com/identity-platform/docs/admin/email-enumeration-protection).
+
+Cập nhật 18/11/2026: router `/home` dựng HomeScreen. Adapter đọc phiên Auth và nối UID, VerificationBanner, logout, Notes callbacks vào NotesHomeScreen. Repository lưu Notes theo UID do nhóm triển khai ở PR #33 tiếp tục được dùng qua provider. Dữ liệu Notes từng lưu dưới key chung `noteflow_notes_v1` cần M2 chốt owner và cách chuyển sang store theo tài khoản.
 
 ## Logout và ranh giới tài khoản
 

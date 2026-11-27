@@ -19,6 +19,7 @@ void main() {
         expect(sessionRedirect(phase, path), '/session');
       }
       expect(sessionRedirect(phase, '/session'), isNull);
+      expect(sessionRedirect(phase, AppRoutes.forgotPassword), isNull);
     }
   });
 
@@ -34,7 +35,7 @@ void main() {
       ]) {
         expect(sessionRedirect(SessionPhase.signedOut, path), '/login');
       }
-      for (final path in ['/login', '/register']) {
+      for (final path in ['/login', '/register', '/forgot-password']) {
         expect(sessionRedirect(SessionPhase.signedOut, path), isNull);
         expect(sessionRedirect(SessionPhase.signedIn, path), '/home');
       }

@@ -73,7 +73,7 @@ class NotesHomeScreen extends StatefulWidget {
 
 class _NotesHomeScreenState extends State<NotesHomeScreen> {
   late final List<Note> _localNotes;
-  late final Set<String> _localLabelCatalog;
+  late Set<String> _localLabelCatalog;
   final _searchController = TextEditingController();
   _NotesSection _section = _NotesSection.all;
   _NotesLayout _layout = _NotesLayout.grid;
@@ -91,6 +91,20 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     super.initState();
     _localNotes = List<Note>.of(widget.initialNotes ?? createDemoNotes());
     _localLabelCatalog = _localNotes.expand((note) => note.labels).toSet();
+    if (widget.initialNotes == null && widget.notes == null) {
+      _loadPersistedNotes();
+    }
+  }
+
+  Future<void> _loadPersistedNotes() async {
+    final saved = await NoteStorage.loadNotes();
+    if (!mounted) return;
+    setState(() {
+      _localNotes
+        ..clear()
+        ..addAll(saved);
+      _localLabelCatalog = _localNotes.expand((note) => note.labels).toSet();
+    });
   }
 
   @override
@@ -1634,11 +1648,77 @@ class _NoteCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (note.status != NoteStatus.normal)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Container(
+                        key: Key('note-status-badge-${note.id}'),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: inkColor.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          note.status.label,
+                          style: text.labelSmall?.copyWith(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: inkColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (note.attachments.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Tooltip(
+                        message:
+                            '${note.attachments.length} ${note.attachments.length == 1 ? 'attachment' : 'attachments'}',
+                        child: Container(
+                          key: Key('note-attachment-indicator-${note.id}'),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: inkColor.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.attach_file_rounded,
+                                size: 12,
+                                color: inkColor,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                '${note.attachments.length}',
+                                style: text.labelSmall?.copyWith(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: inkColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: NoteSyncStatusIndicator(status: note.syncStatus),
+                  ),
                   if (note.isPinned)
-                    const Padding(
-                      padding: EdgeInsets.only(right: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
                       child: Icon(
                         Icons.push_pin_rounded,
+                        key: Key('note-pin-indicator-${note.id}'),
                         size: 16,
                         color: inkColor,
                       ),
@@ -1816,10 +1896,70 @@ class _NoteListTile extends StatelessWidget {
                             ),
                           ),
                         ),
+                        const SizedBox(width: 6),
+                        NoteSyncStatusIndicator(status: note.syncStatus),
+                        if (note.status != NoteStatus.normal) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            key: Key('note-tile-status-badge-${note.id}'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: inkColor.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              note.status.label,
+                              style: text.labelSmall?.copyWith(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: inkColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (note.attachments.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            key: Key(
+                              'note-tile-attachment-indicator-${note.id}',
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: inkColor.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.attach_file_rounded,
+                                  size: 12,
+                                  color: inkColor,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  '${note.attachments.length}',
+                                  style: text.labelSmall?.copyWith(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: inkColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         if (note.isPinned) ...[
                           const SizedBox(width: 7),
-                          const Icon(
+                          Icon(
                             Icons.push_pin_rounded,
+                            key: Key('note-tile-pin-indicator-${note.id}'),
                             color: inkColor,
                             size: 15,
                           ),

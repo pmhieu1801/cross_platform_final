@@ -1,11 +1,13 @@
 import 'package:final_note/features/auth/application/auth_providers.dart';
 import 'package:final_note/features/notes/application/note_providers.dart';
 import 'package:final_note/features/notes/data/in_memory_note_repository.dart';
+import 'package:final_note/features/notes/data/local_note_repository.dart';
 import 'package:final_note/features/notes/domain/note_repository.dart';
 import 'package:final_note/models/note.dart';
 import 'package:final_note/screens/note_editor_sheet.dart';
 import 'package:final_note/screens/notes_home_screen.dart';
 import 'package:final_note/theme/theme.dart';
+import 'package:final_note/widgets/note_sync_status_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +23,131 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
+
+  group('LocalNoteRepository persistence', () {
+    test(
+      'local edits reset sync status to pending and server states persist',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final repository = LocalNoteRepository(seedDemoNotes: false);
+        final note = Note(
+          id: 'sync-note',
+          title: 'Sync state',
+          content: '',
+          labels: const [],
+          colorIndex: 0,
+          updatedAt: DateTime(2026, 11, 14),
+        );
+
+        final saved = await repository.saveNote('uid-a', note);
+        expect(saved.syncStatus, NoteSyncStatus.pending);
+        final synced = await repository.updateSyncStatus(
+          'uid-a',
+          note.id,
+          NoteSyncStatus.synced,
+        );
+        expect(synced.syncStatus, NoteSyncStatus.synced);
+        await repository.dispose();
+
+        final restartedRepository = LocalNoteRepository(seedDemoNotes: false);
+        addTearDown(restartedRepository.dispose);
+        final restored = (await restartedRepository.listNotes('uid-a')).single;
+        expect(restored.syncStatus, NoteSyncStatus.synced);
+
+        final edited = await restartedRepository.saveNote(
+          'uid-a',
+          restored.copyWith(title: 'Edited locally'),
+        );
+        expect(edited.syncStatus, NoteSyncStatus.pending);
+      },
+    );
+
+    test(
+      'restores notes and labels across instances without crossing UIDs',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final firstRepository = LocalNoteRepository(seedDemoNotes: false);
+        final updatedAt = DateTime(2026, 11, 14, 12);
+        final attachment = NoteAttachment(
+          id: 'attachment-1',
+          name: 'agenda.pdf',
+          kind: NoteAttachmentKind.file,
+          localPath: 'local://agenda.pdf',
+          mimeType: 'application/pdf',
+          createdAt: updatedAt,
+          sizeBytes: 2048,
+        );
+        final note = Note(
+          id: 'note-a1',
+          title: 'Persisted note',
+          content: 'Survives an app restart',
+          labels: const ['Work'],
+          colorIndex: 2,
+          updatedAt: updatedAt,
+          isPinned: true,
+          pinnedAt: updatedAt,
+          status: NoteStatus.important,
+          attachments: [attachment],
+        );
+        final saved = await firstRepository.saveNote('uid-a', note);
+        await firstRepository.addLabel('uid-a', 'Ideas');
+        await firstRepository.dispose();
+
+        final restartedRepository = LocalNoteRepository(seedDemoNotes: false);
+        addTearDown(restartedRepository.dispose);
+
+        final restoredNotes = await restartedRepository.listNotes('uid-a');
+        expect(restoredNotes, hasLength(1));
+        expect(restoredNotes.single.toJson(), saved.toJson());
+        expect(await restartedRepository.listLabels('uid-a'), [
+          'Ideas',
+          'Work',
+        ]);
+        expect(await restartedRepository.listNotes('uid-b'), isEmpty);
+        expect(await restartedRepository.listLabels('uid-b'), isEmpty);
+      },
+    );
+
+    test(
+      'reports corrupt persisted data instead of replacing it with demo notes',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'noteflow_account_notes_v1_dWlkLWE': '{invalid',
+        });
+        final repository = LocalNoteRepository();
+        addTearDown(repository.dispose);
+
+        await expectLater(
+          repository.listNotes('uid-a'),
+          throwsA(isA<NoteFailure>()),
+        );
+      },
+    );
+  });
+
+  testWidgets(
+    'sync status indicator renders pending, synced, and failed states',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrapWithTheme(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: NoteSyncStatus.values
+                .map(
+                  (status) =>
+                      NoteSyncStatusIndicator(status: status, showLabel: true),
+                )
+                .toList(),
+          ),
+        ),
+      );
+
+      expect(find.text('Pending sync'), findsOneWidget);
+      expect(find.text('Synced'), findsOneWidget);
+      expect(find.text('Sync failed'), findsOneWidget);
+    },
+  );
+
   group('NoteRepository & UID isolation (R11, R12, R13, R17)', () {
     test(
       'isolates notes strictly per UID and cancels old account streams',
@@ -159,12 +286,13 @@ void main() {
           'Sprint Planning',
         );
         await tester.pump();
-        expect(find.text('Saving…'), findsOneWidget);
+        expect(find.text('Saving locally…'), findsOneWidget);
 
         await tester.pump(const Duration(milliseconds: 200));
         expect(savedNotes, hasLength(1));
         expect(savedNotes.last.title, 'Sprint Planning');
-        expect(find.text('Saved'), findsOneWidget);
+        expect(find.text('Saved locally'), findsOneWidget);
+        expect(find.text('Pending sync'), findsOneWidget);
 
         // Simulate a save failure followed by manual retry.
         shouldFail = true;
@@ -174,12 +302,13 @@ void main() {
         );
         await tester.pump(const Duration(milliseconds: 200));
         expect(find.byKey(const Key('note-autosave-retry')), findsOneWidget);
+        expect(find.text('Sync failed'), findsNothing);
 
         shouldFail = false;
         await tester.tap(find.byKey(const Key('note-autosave-retry')));
         await tester.pumpAndSettle();
         expect(savedNotes.last.content, 'Check deliverables');
-        expect(find.text('Saved'), findsOneWidget);
+        expect(find.text('Saved locally'), findsOneWidget);
       },
     );
 

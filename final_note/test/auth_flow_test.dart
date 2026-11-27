@@ -7,6 +7,7 @@ import 'package:final_note/routing/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_auth_repository.dart';
 
@@ -16,6 +17,7 @@ void main() {
   late FakeAuthRepository fake;
   late ProviderContainer container;
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     fake = FakeAuthRepository();
     container = ProviderContainer(
       overrides: [authRepositoryProvider.overrideWith((ref) async => fake)],

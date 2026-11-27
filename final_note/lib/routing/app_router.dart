@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/auth/application/auth_providers.dart';
 import '../features/auth/presentation/auth_form.dart';
+import '../features/auth/presentation/forgot_password_screen.dart';
 import '../features/auth/presentation/session_screen.dart';
 import '../features/home/home_screen.dart';
 import 'session_guard.dart';
@@ -30,6 +31,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.register,
         builder: (_, _) => const AuthForm(register: true),
+      ),
+      GoRoute(
+        path: AppRoutes.forgotPassword,
+        builder: (_, _) => Consumer(
+          builder: (context, ref, child) =>
+              sessionPhase(ref.watch(authSessionProvider)) ==
+                  SessionPhase.signedOut
+              ? const ForgotPasswordScreen()
+              : const SessionScreen(),
+        ),
       ),
       GoRoute(path: AppRoutes.home, builder: (_, _) => const HomeScreen()),
     ],

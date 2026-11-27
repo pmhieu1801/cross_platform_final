@@ -96,7 +96,10 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   late int _colorIndex;
   late bool _isPinned;
   late DateTime? _pinnedAt;
+  late NoteStatus _status;
+  late NoteSyncStatus _syncStatus;
   late List<String> _labels;
+  late List<NoteAttachment> _attachments;
   late List<String> _catalogLabels;
 
   Timer? _debounceTimer;
@@ -116,7 +119,12 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     _colorIndex = initial?.colorIndex ?? 0;
     _isPinned = initial?.isPinned ?? false;
     _pinnedAt = initial?.pinnedAt;
+    _status = initial?.status ?? NoteStatus.normal;
+    _syncStatus = initial?.syncStatus ?? NoteSyncStatus.pending;
     _labels = List<String>.of(initial?.labels ?? const <String>[]);
+    _attachments = List<NoteAttachment>.of(
+      initial?.attachments ?? const <NoteAttachment>[],
+    );
     _catalogLabels = {...widget.availableLabels, ..._labels}.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     _hasEverSaved = initial != null;
@@ -139,6 +147,10 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     if (oldWidget.availableLabels != widget.availableLabels) {
       _catalogLabels = {...widget.availableLabels, ..._labels}.toList()
         ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    }
+    if (!_dirty &&
+        oldWidget.initialNote?.syncStatus != widget.initialNote?.syncStatus) {
+      _syncStatus = widget.initialNote?.syncStatus ?? NoteSyncStatus.pending;
     }
   }
 
@@ -171,6 +183,9 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       isPinned: _isPinned,
       pinnedAt: _isPinned ? (_pinnedAt ?? now) : null,
       ownerUid: widget.initialNote?.ownerUid,
+      status: _status,
+      syncStatus: _syncStatus,
+      attachments: List<NoteAttachment>.unmodifiable(_attachments),
     );
   }
 
@@ -184,17 +199,48 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     if (previous.content != _contentController.text) return true;
     if (previous.colorIndex != _colorIndex) return true;
     if (previous.isPinned != _isPinned) return true;
+    if (previous.status != _status) return true;
     if (previous.labels.length != _labels.length) return true;
     for (var i = 0; i < _labels.length; i++) {
       if (previous.labels[i] != _labels[i]) return true;
     }
+    if (previous.attachments.length != _attachments.length) return true;
+    for (var i = 0; i < _attachments.length; i++) {
+      if (previous.attachments[i] != _attachments[i]) return true;
+    }
     return false;
+  }
+
+  void _addAttachment(NoteAttachmentKind kind) {
+    final createdAt = DateTime.now();
+    final attachment = NoteAttachment(
+      id: 'attachment-${createdAt.microsecondsSinceEpoch}',
+      name: '${kind.label} ${_attachments.length + 1}',
+      kind: kind,
+      localPath: 'local://$kind/${createdAt.microsecondsSinceEpoch}',
+      mimeType: switch (kind) {
+        NoteAttachmentKind.image => 'image/*',
+        NoteAttachmentKind.video => 'video/*',
+        NoteAttachmentKind.file => 'application/octet-stream',
+      },
+      createdAt: createdAt,
+    );
+    setState(() {
+      _attachments.add(attachment);
+    });
+    _markPendingAndScheduleAutosave();
+  }
+
+  void _removeAttachment(NoteAttachment attachment) {
+    setState(() {
+      _attachments.removeWhere((item) => item.id == attachment.id);
+    });
+    _markPendingAndScheduleAutosave();
   }
 
   void _onFieldEdited() {
     if (!_differsFromLastSaved()) return;
-    _dirty = true;
-    _scheduleAutosave();
+    _markPendingAndScheduleAutosave();
   }
 
   void _toggleLabel(String label) {
@@ -205,8 +251,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
         _labels.add(label);
       }
     });
-    _dirty = true;
-    _scheduleAutosave();
+    _markPendingAndScheduleAutosave();
   }
 
   void _commitPendingLabelInput({bool scheduleSave = true}) {
@@ -236,14 +281,26 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       }
       _newLabelController.clear();
     });
-    _dirty = true;
     if (scheduleSave) {
-      _scheduleAutosave();
+      _markPendingAndScheduleAutosave();
+    } else {
+      _dirty = true;
+      if (_syncStatus != NoteSyncStatus.pending) {
+        _syncStatus = NoteSyncStatus.pending;
+      }
     }
   }
 
   void _addCustomLabel() {
     _commitPendingLabelInput(scheduleSave: true);
+  }
+
+  void _markPendingAndScheduleAutosave() {
+    _dirty = true;
+    if (_syncStatus != NoteSyncStatus.pending) {
+      setState(() => _syncStatus = NoteSyncStatus.pending);
+    }
+    _scheduleAutosave();
   }
 
   void _scheduleAutosave() {
@@ -294,7 +351,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
         if (mounted) {
           setState(() {
             _phase = NoteAutosavePhase.error;
-            _errorMessage = 'Could not save changes. Tap retry.';
+            _errorMessage = 'Could not save locally. Tap retry.';
           });
         }
         return false;
@@ -304,6 +361,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       _dirty = _differsFromLastSaved();
       if (mounted) {
         setState(() {
+          _syncStatus = saved.syncStatus;
           _phase = NoteAutosavePhase.saved;
           _errorMessage = null;
         });
@@ -313,7 +371,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       if (mounted) {
         setState(() {
           _phase = NoteAutosavePhase.error;
-          _errorMessage = 'Could not save changes. Tap retry.';
+          _errorMessage = 'Could not save locally. Tap retry.';
         });
       }
       return false;
@@ -409,7 +467,19 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 ),
               ),
               const SizedBox(width: AppSpacing.xs),
-              Expanded(child: _buildAutosaveBadge(context)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildAutosaveBadge(context),
+                    NoteSyncStatusIndicator(
+                      status: _syncStatus,
+                      showLabel: true,
+                    ),
+                  ],
+                ),
+              ),
               IconButton(
                 key: const Key('note-editor-pin'),
                 tooltip: _isPinned ? 'Unpin note' : 'Pin note',
@@ -418,8 +488,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                     _isPinned = !_isPinned;
                     _pinnedAt = _isPinned ? DateTime.now() : null;
                   });
-                  _dirty = true;
-                  _scheduleAutosave();
+                  _markPendingAndScheduleAutosave();
                 },
                 icon: Icon(
                   _isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
@@ -493,7 +562,11 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
+          _buildStatusPicker(context),
+          const SizedBox(height: AppSpacing.md),
           _buildLabelsSection(context, accent),
+          const SizedBox(height: AppSpacing.md),
+          _buildAttachmentsSection(context, accent),
           const SizedBox(height: AppSpacing.md),
           _buildColorPicker(context, accent),
           const SizedBox(height: AppSpacing.lg),
@@ -520,6 +593,40 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildStatusPicker(BuildContext context) {
+    final text = context.text;
+    final tokens = context.tokens;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Status',
+          style: text.labelSmall?.copyWith(color: tokens.textMuted),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        DropdownButtonFormField<NoteStatus>(
+          initialValue: _status,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ),
+          items: NoteStatus.values
+              .map(
+                (status) =>
+                    DropdownMenuItem(value: status, child: Text(status.label)),
+              )
+              .toList(),
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() => _status = value);
+            _markPendingAndScheduleAutosave();
+          },
+        ),
+      ],
     );
   }
 
@@ -627,6 +734,118 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     );
   }
 
+  Widget _buildAttachmentsSection(BuildContext context, Color accent) {
+    final tokens = context.tokens;
+    final text = context.text;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.attach_file_rounded, size: 16, color: tokens.textMuted),
+            const SizedBox(width: AppSpacing.xs),
+            Expanded(
+              child: Text(
+                'Attachments',
+                style: text.labelSmall?.copyWith(color: tokens.textMuted),
+              ),
+            ),
+            PopupMenuButton<NoteAttachmentKind>(
+              tooltip: 'Add attachment',
+              icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+              onSelected: _addAttachment,
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: NoteAttachmentKind.image,
+                  child: Text('Image'),
+                ),
+                const PopupMenuItem(
+                  value: NoteAttachmentKind.video,
+                  child: Text('Video'),
+                ),
+                const PopupMenuItem(
+                  value: NoteAttachmentKind.file,
+                  child: Text('File'),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        if (_attachments.isEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: tokens.glassBorder),
+            ),
+            child: Text(
+              'No attachments yet. Add a local image, video, or file.',
+              style: text.bodySmall?.copyWith(color: tokens.textMuted),
+            ),
+          )
+        else
+          Wrap(
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
+            children: _attachments.map((attachment) {
+              final icon = switch (attachment.kind) {
+                NoteAttachmentKind.image => Icons.image_rounded,
+                NoteAttachmentKind.video => Icons.videocam_rounded,
+                NoteAttachmentKind.file => Icons.insert_drive_file_rounded,
+              };
+
+              return Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.sm,
+                  vertical: AppSpacing.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: tokens.glassBorder),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 16, color: accent),
+                    const SizedBox(width: AppSpacing.xs),
+                    Text(
+                      attachment.name,
+                      style: text.labelSmall?.copyWith(
+                        color: context.colors.onSurface,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Text(
+                      attachment.kind.label,
+                      style: text.labelSmall?.copyWith(color: tokens.textMuted),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove attachment',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _removeAttachment(attachment),
+                      icon: Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: tokens.danger,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
   Widget _buildAutosaveBadge(BuildContext context) {
     final tokens = context.tokens;
     final text = context.text;
@@ -636,7 +855,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       liveRegion: true,
       child: switch (_phase) {
         NoteAutosavePhase.idle => Text(
-          widget.initialNote == null ? 'New note' : 'Saved',
+          widget.initialNote == null ? 'New note' : 'Saved locally',
           key: const Key('note-autosave-status'),
           style: text.labelMedium?.copyWith(
             color: subInkColor,
@@ -657,7 +876,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             ),
             const SizedBox(width: AppSpacing.sm),
             Text(
-              'Saving…',
+              'Saving locally…',
               style: text.labelMedium?.copyWith(color: subInkColor),
             ),
           ],
@@ -666,10 +885,10 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
           key: const Key('note-autosave-status'),
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_done_outlined, size: 16, color: tokens.success),
+            Icon(Icons.save_outlined, size: 16, color: tokens.success),
             const SizedBox(width: AppSpacing.xs),
             Text(
-              'Saved',
+              'Saved locally',
               style: text.labelMedium?.copyWith(
                 color: tokens.success,
                 fontWeight: FontWeight.w700,
@@ -736,8 +955,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                   onTap: () {
                     if (_colorIndex == index) return;
                     setState(() => _colorIndex = index);
-                    _dirty = true;
-                    _scheduleAutosave();
+                    _markPendingAndScheduleAutosave();
                   },
                   child: AnimatedContainer(
                     duration: AppDurations.fast,

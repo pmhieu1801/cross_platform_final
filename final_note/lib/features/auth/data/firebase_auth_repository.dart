@@ -73,6 +73,18 @@ class FirebaseAuthRepository implements AuthRepository {
   @override
   Future<void> signOut() => _translate(_auth.signOut);
 
+  @override
+  Future<void> requestPasswordReset(String email) => _translate(() async {
+    try {
+      // Firebase's hosted page consumes the one-time code and sets the password.
+      await _auth.sendPasswordResetEmail(email: email);
+    } on FirebaseAuthException catch (error) {
+      // Older projects can disclose a missing user. Match the protected Firebase
+      // response for this case and surface all other failures.
+      if (error.code != 'user-not-found') rethrow;
+    }
+  });
+
   User _requireUser(String expectedUid) {
     final user = _auth.currentUser;
     if (user == null || user.uid != expectedUid) {
