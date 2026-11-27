@@ -72,6 +72,10 @@ class HomeScreen extends ConsumerWidget {
       onChangePassword: () => context.go(AppRoutes.changePassword),
       onProfile: () => context.go(AppRoutes.profile),
       onPreferences: () => context.go(AppRoutes.preferences),
+      themeMode: preferences.themeMode,
+      onThemeModeChanged: ref
+          .read(accountPreferencesProvider.notifier)
+          .setThemeMode,
       viewMode: preferences.notesViewMode,
       viewModeEnabled: preferencesState != null && !preferencesState.saving,
       preferencesError: preferencesState?.error,

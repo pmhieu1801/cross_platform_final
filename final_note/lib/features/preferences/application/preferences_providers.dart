@@ -118,4 +118,10 @@ class AccountPreferences extends AsyncNotifier<AccountPreferencesState> {
       notesViewMode: mode,
     ),
   );
+
+  Future<bool> setThemeMode(PreferenceThemeMode mode) => save(
+    (state.asData?.value.value ?? UserPreferences.defaults).copyWith(
+      themeMode: mode,
+    ),
+  );
 }

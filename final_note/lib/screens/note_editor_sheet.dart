@@ -1315,33 +1315,70 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
 
   Widget _buildStatusPicker(BuildContext context) {
     final text = context.text;
-    final tokens = context.tokens;
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.72);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
           'Status',
-          style: text.labelSmall?.copyWith(color: tokens.textMuted),
+          style: text.labelSmall?.copyWith(
+            color: subInkColor,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         const SizedBox(height: AppSpacing.xs),
         DropdownButtonFormField<NoteStatus>(
           initialValue: _status,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          dropdownColor: Colors.white,
+          iconEnabledColor: inkColor,
+          iconDisabledColor: subInkColor,
+          style: text.bodyMedium?.copyWith(
+            color: inkColor,
+            fontWeight: FontWeight.w700,
+          ),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.78),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: AppRadius.smAll,
+              borderSide: BorderSide(color: inkColor.withValues(alpha: 0.25)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: AppRadius.smAll,
+              borderSide: BorderSide(color: inkColor.withValues(alpha: 0.25)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: AppRadius.smAll,
+              borderSide: const BorderSide(color: inkColor, width: 1.5),
+            ),
           ),
           items: NoteStatus.values
               .map(
-                (status) =>
-                    DropdownMenuItem(value: status, child: Text(status.label)),
+                (status) => DropdownMenuItem(
+                  value: status,
+                  child: Text(
+                    status.label,
+                    style: text.bodyMedium?.copyWith(
+                      color: inkColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               )
               .toList(),
-          onChanged: (value) {
-            if (value == null) return;
-            setState(() => _status = value);
-            _markPendingAndScheduleAutosave();
-          },
+          onChanged: widget.readOnly
+              ? null
+              : (value) {
+                  if (value == null) return;
+                  setState(() => _status = value);
+                  _markPendingAndScheduleAutosave();
+                },
         ),
       ],
     );

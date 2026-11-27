@@ -34,6 +34,8 @@ class NotesHomeScreen extends StatefulWidget {
     this.onChangePassword,
     this.onProfile,
     this.onPreferences,
+    this.themeMode,
+    this.onThemeModeChanged,
     this.viewMode,
     this.onViewModeChanged,
     this.viewModeEnabled = true,
@@ -84,8 +86,9 @@ class NotesHomeScreen extends StatefulWidget {
   final VoidCallback? onProfile;
   final VoidCallback? onPreferences;
 
-  /// Optional controlled settings supplied by M1; standalone previews keep
-  /// their existing local layout. Note data/autosave remain owned by M2.
+  /// Optional controlled theme & settings supplied by M1.
+  final PreferenceThemeMode? themeMode;
+  final ValueChanged<PreferenceThemeMode>? onThemeModeChanged;
   final NotesViewMode? viewMode;
   final ValueChanged<NotesViewMode>? onViewModeChanged;
   final bool viewModeEnabled;
@@ -816,6 +819,21 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     return null;
   }
 
+  bool _isLightThemeActive(BuildContext context) {
+    final mode = widget.themeMode;
+    if (mode == PreferenceThemeMode.light) return true;
+    if (mode == PreferenceThemeMode.dark) return false;
+    return Theme.of(context).brightness == Brightness.light;
+  }
+
+  void _toggleLightDarkTheme(BuildContext context) {
+    if (widget.onThemeModeChanged == null) return;
+    final nextMode = _isLightThemeActive(context)
+        ? PreferenceThemeMode.dark
+        : PreferenceThemeMode.light;
+    widget.onThemeModeChanged!(nextMode);
+  }
+
   void _openManageLabelsDialog() {
     showDialog<void>(
       context: context,
@@ -1296,20 +1314,63 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                         ],
                       ),
                     ),
-                    Icon(
-                      Icons.manage_accounts_outlined,
-                      size: 18,
-                      color: tokens.textMuted,
-                    ),
+                    if (widget.onProfile != null)
+                      IconButton(
+                        key: const Key('open-profile'),
+                        tooltip: 'Profile',
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.all(4),
+                        constraints: const BoxConstraints(),
+                        onPressed: widget.authBusy ? null : widget.onProfile,
+                        icon: Icon(
+                          Icons.person_outline_rounded,
+                          size: 16,
+                          color: tokens.textMuted,
+                        ),
+                      ),
+                    if (widget.onPreferences != null)
+                      IconButton(
+                        key: const Key('open-preferences'),
+                        tooltip: 'Settings',
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.all(4),
+                        constraints: const BoxConstraints(),
+                        onPressed: widget.authBusy
+                            ? null
+                            : widget.onPreferences,
+                        icon: Icon(
+                          Icons.settings_outlined,
+                          size: 16,
+                          color: tokens.textMuted,
+                        ),
+                      ),
+                    if (widget.onChangePassword != null)
+                      IconButton(
+                        key: const Key('open-change-password'),
+                        tooltip: 'Change password',
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.all(4),
+                        constraints: const BoxConstraints(),
+                        onPressed: widget.authBusy
+                            ? null
+                            : widget.onChangePassword,
+                        icon: Icon(
+                          Icons.lock_reset_rounded,
+                          size: 16,
+                          color: tokens.textMuted,
+                        ),
+                      ),
                     if (widget.onLogout != null)
                       IconButton(
                         key: const Key('logout'),
                         tooltip: 'Đăng xuất',
                         visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.all(4),
+                        constraints: const BoxConstraints(),
                         onPressed: widget.authBusy ? null : widget.onLogout,
                         icon: Icon(
                           Icons.logout_rounded,
-                          size: 17,
+                          size: 16,
                           color: tokens.textMuted,
                         ),
                       ),
@@ -1760,6 +1821,31 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
+            if (widget.onThemeModeChanged != null) ...[
+              Builder(
+                builder: (context) {
+                  final isLight = _isLightThemeActive(context);
+                  return OutlinedButton.icon(
+                    key: const Key('quick-theme-toggle-button'),
+                    onPressed: () => _toggleLightDarkTheme(context),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm + 2,
+                      ),
+                    ),
+                    icon: Icon(
+                      isLight
+                          ? Icons.dark_mode_outlined
+                          : Icons.light_mode_rounded,
+                      size: 17,
+                    ),
+                    label: Text(isLight ? 'Dark mode' : 'White mode'),
+                  );
+                },
+              ),
+              const SizedBox(width: AppSpacing.sm),
+            ],
             FilledButton.icon(
               key: const Key('open-ai-qa-button'),
               style: FilledButton.styleFrom(
