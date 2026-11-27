@@ -73,10 +73,12 @@ class NoteEditorPanel extends StatefulWidget {
     this.sharedAt,
     this.debounceDuration = const Duration(milliseconds: 400),
     this.embedded = false,
+    this.noteFontScale = 1,
   });
 
   /// `null` when creating a new note; non-null when editing an existing note.
   final Note? initialNote;
+  final double noteFontScale;
 
   /// All known labels for this account so the user can toggle them on/off.
   final List<String> availableLabels;
@@ -1025,6 +1027,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               IconButton(
                 key: const Key('note-editor-ai-summary-button'),
                 tooltip: 'AI Summary',
+                visualDensity: VisualDensity.compact,
                 onPressed: _generatingSummary
                     ? null
                     : () => _generateAiSummary(regenerate: false),
@@ -1037,6 +1040,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 IconButton(
                   key: const Key('note-editor-pin'),
                   tooltip: _isPinned ? 'Unpin note' : 'Pin note',
+                  visualDensity: VisualDensity.compact,
                   onPressed: () {
                     setState(() {
                       _isPinned = !_isPinned;
@@ -1055,6 +1059,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 IconButton(
                   key: const Key('note-editor-share-button'),
                   tooltip: 'Share note',
+                  visualDensity: VisualDensity.compact,
                   onPressed: _handleShareButton,
                   icon: Icon(
                     _shares.isNotEmpty
@@ -1069,6 +1074,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                   tooltip: _isPasswordProtected
                       ? 'Password protection settings'
                       : 'Protect note with password',
+                  visualDensity: VisualDensity.compact,
                   onPressed: _handlePasswordProtectionButton,
                   icon: Icon(
                     _isPasswordProtected
@@ -1083,6 +1089,7 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 IconButton(
                   key: const Key('note-editor-delete'),
                   tooltip: 'Delete note',
+                  visualDensity: VisualDensity.compact,
                   onPressed: _handleDelete,
                   icon: Icon(Icons.delete_outline_rounded, color: colors.error),
                 ),
@@ -1131,6 +1138,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             readOnly: widget.readOnly,
             textInputAction: TextInputAction.next,
             style: text.headlineSmall?.copyWith(
+              fontSize:
+                  (text.headlineSmall?.fontSize ?? 22) * widget.noteFontScale,
               fontFamily: AppTypography.display,
               fontWeight: FontWeight.w700,
               color: inkColor,
@@ -1164,7 +1173,12 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 maxLines: null,
                 minLines: 5,
                 keyboardType: TextInputType.multiline,
-                style: text.bodyLarge?.copyWith(color: inkColor, height: 1.55),
+                style: text.bodyLarge?.copyWith(
+                  color: inkColor,
+                  height: 1.55,
+                  fontSize:
+                      (text.bodyLarge?.fontSize ?? 16) * widget.noteFontScale,
+                ),
                 decoration: InputDecoration(
                   labelText: 'Content',
                   floatingLabelBehavior: FloatingLabelBehavior.never,
@@ -1651,9 +1665,13 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
-            Text(
-              'Saving locally…',
-              style: text.labelMedium?.copyWith(color: subInkColor),
+            Flexible(
+              child: Text(
+                'Saving locally…',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.labelMedium?.copyWith(color: subInkColor),
+              ),
             ),
           ],
         ),
@@ -1663,11 +1681,15 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
           children: [
             Icon(Icons.save_outlined, size: 16, color: tokens.success),
             const SizedBox(width: AppSpacing.xs),
-            Text(
-              'Saved locally',
-              style: text.labelMedium?.copyWith(
-                color: tokens.success,
-                fontWeight: FontWeight.w700,
+            Flexible(
+              child: Text(
+                'Saved locally',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.labelMedium?.copyWith(
+                  color: tokens.success,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],

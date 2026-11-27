@@ -112,4 +112,23 @@ abstract class NoteRepository {
     String noteId, {
     required String recipientEmail,
   });
+
+  /// Synchronizes all pending or failed notes for [uid] when online (R31).
+  ///
+  /// When [simulateOfflineFailure] is `true`, marks pending notes as
+  /// [NoteSyncStatus.failed] and throws a [NoteFailure] so the user can retry.
+  Future<List<Note>> synchronizeNotes(
+    String uid, {
+    bool simulateOfflineFailure = false,
+  });
+
+  /// Resolves a synchronization conflict between a [localNote] and a
+  /// [remoteNote] for [uid] using a deterministic Last-Write-Wins (LWW)
+  /// strategy based on `updatedAt`, while preserving diverging content in the
+  /// merged body when both versions edited the body differently (R31).
+  Future<Note> resolveConflict(
+    String uid, {
+    required Note localNote,
+    required Note remoteNote,
+  });
 }

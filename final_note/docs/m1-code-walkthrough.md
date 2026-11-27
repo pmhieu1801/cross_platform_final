@@ -79,7 +79,35 @@ Linh mở email bằng trình duyệt. Trang HTTPS của Firebase kiểm link m�
 
 Đọc theo đường đi `lib/screens/login_screen.dart` → `lib/features/auth/presentation/auth_form.dart` → `lib/routing/session_guard.dart` và `app_router.dart` → `forgot_password_screen.dart` → `password_reset_controller.dart` → `firebase_auth_repository.dart`.
 
+## 10. Đổi mật khẩu W2-03
+
+Ví dụ Linh đang ở Notes, bấm biểu tượng **Change password** và nhập mật khẩu hiện tại cùng hai lần mật khẩu mới. Router chỉ cho phiên signed-in vào `/change-password`; key UID ngăn form A được dùng lại cho B. Form kiểm mật khẩu mới tối thiểu 8 ký tự theo Validators hiện có, confirmation phải khớp, và giữ nguyên khoảng trắng trong mật khẩu.
+
+Screen gọi ChangePasswordController, đặt busy rồi dùng repository reauthenticate bằng email từ Firebase và mật khẩu hiện tại. Sai mật khẩu hiện tại dừng trước update. Reauthentication là yêu cầu xác nhận lại danh tính cho thao tác nhạy cảm, khác với việc chỉ thấy app đang đăng nhập. Firebase vẫn có quyền từ chối mật khẩu mới theo policy backend.
+
+Update thành công chưa phải toàn bộ luồng hoàn tất: controller yêu cầu signOut tại client này, đợi SDK stream phát null để guard đóng private route. Login hiện lời nhắc dùng mật khẩu mới; app không tự đăng nhập lại. Nếu bước signOut lỗi sau update, UI nói rõ mật khẩu đã đổi và chỉ thử lại signOut, không yêu cầu nhập lại mật khẩu cũ. Không suy từ client signOut rằng mọi thiết bị khác đã bị thu hồi phiên.
+
+Provider chỉ giữ phase, UID và thông báo an toàn. Mật khẩu được xóa khỏi form sau request hoặc dispose. Khi lease A bị đóng, generation làm mất hiệu lực callback chậm kể cả khi cùng UID A đăng nhập lại. Controller watch lease và trả state từ build, thay vì ghi state trong listener bị kích hoạt lúc Home đang build; regression đăng ký kiểm đúng trường hợp này.
+
+Đọc theo luồng: `lib/features/auth/presentation/change_password_screen.dart` → `application/change_password_controller.dart` → `domain/auth_repository.dart` → `data/firebase_auth_repository.dart`. Điểm mở form ở `lib/features/home/home_screen.dart`, route ở `lib/routing/app_router.dart`. `test/change_password_test.dart` kiểm form/state/races bằng fake; `test/firebase_change_password_repository_test.dart` kiểm thứ tự SDK và UID bằng stub. `integration_test/change_password_real_test.dart` dùng SDK/Firebase thật với app Firebase thứ hai và account mới chỉ thuộc lượt test, không đăng xuất tài khoản đang có của owner. Evidence của test này không thay bằng chứng thao tác giao diện Web/Android.
+
+## 11. Hồ sơ W2-04
+
+Ví dụ Linh mở **Profile** bằng biểu tượng người dùng ở header Notes. Router chỉ cho phiên signed-in vào và dùng key UID để form Linh không được tái dùng khi đăng nhập B. Màn hình hiển thị tên/email/UID từ Auth snapshot; email và UID không có ô sửa. Ảnh HTTPS từ Auth.photoURL được hiển thị nếu tải được, còn lại dùng avatar mặc định. Đây chưa phải upload avatar thật của W2-05.
+
+Mở Profile gọi refresh sau frame đầu để không cập nhật provider trong lúc dựng widget. `ProfileActions` gọi repository → `User.reload()` → `userChanges()` trả snapshot mới. Nếu Linh sửa tên trên thiết bị khác, quay lại Profile hoặc bấm **Refresh profile** sẽ đọc lại từ Firebase; stream của client không tự nhận mọi chỉnh sửa từ xa ngay lập tức.
+
+Linh bấm **Edit display name**, nhập `  Linh Nguyễn  ` rồi Save. Form/controller/adapter chặn tên chỉ có khoảng trắng. Adapter gửi `Linh Nguyễn` bằng `User.updateDisplayName`, không tự tạo document User hoặc đổi email. Firebase stream cập nhật tên trên Profile và lời chào Home. Hoàn tất Future không được dùng để giả session mới. Lưu lỗi giữ bản nhập để retry; Cancel hoặc rời màn hình bỏ draft. Callback muộn kiểm lease/generation/ref.mounted để không báo kết quả cho B.
+
+Đọc `lib/features/auth/presentation/profile_screen.dart` → `application/profile_controller.dart` → `data/firebase_auth_repository.dart`; `profile_avatar.dart` chứa default/loading/error fallback. Các test `test/profile_test.dart`, `test/firebase_profile_repository_test.dart` kiểm form, SDK boundary và account switch. `integration_test/profile_real_test.dart` chạy form production với Firebase thật bằng account tạm và hai Firebase app phụ: client thứ hai đăng nhập mới đọc tên đã lưu, đổi tên rồi client đầu reload để nhận thay đổi. Hai client trên Android không tự chứng minh lượt Web hoặc reboot hệ điều hành.
+
 ## Tự kiểm tra trước vấn đáp
+
+W2-06: Linh chọn Light/130%/List tại Settings. Draft chưa đổi app; Save gọi AccountPreferences → LocalPreferencesRepository → shared_preferences dưới key UID Linh. Chỉ write thành công mới publish cho MaterialApp và Notes. Logout chuyển về defaults ngay, B tải key B; Linh quay lại đọc đúng key cũ. Đó là local persistence, không phải cloud sync Web/Android. Dữ liệu hỏng có warning/default và chỉ explicit Save mới ghi đè.
+
+Đọc `lib/features/preferences/domain/user_preferences.dart` → `data/local_preferences_repository.dart` → `application/preferences_providers.dart` → `presentation/preferences_screen.dart` → `lib/app.dart` và Home adapter. Notes chỉ nhận props cho view/font/error, không đổi repository/autosave. Projection effective chặn stale AsyncValue; controller không đọc ngược projection phụ thuộc chính mình khi đổi Grid/List, mà dùng current state rồi đi qua save guard. FIFO local giữ thứ tự khi cùng UID đăng nhập lại lúc write cũ chưa xong. `integration_test/preferences_real_test.dart` có seed/verify hai tiến trình và cleanup chỉ account/keys do lượt đó tạo; xem báo cáo W2-06 cho phạm vi bằng chứng.
+
+W2-05 hiện chỉ chuẩn bị interface và validation, vì owner giữ Spark và chưa chọn storage. Đọc `lib/features/auth/domain/avatar_repository.dart` → `application/avatar_image_validator.dart` → `test/avatar_image_validator_test.dart`. Validator copy bytes trước await, nhận dạng JPEG/PNG thay vì tin đuôi file, đọc kích thước encoded trước khi decode frame và luôn dispose codec/image/buffer. Kết quả là payload immutable, chưa phải avatar đã upload. Backend vẫn phải xác minh quyền/file độc lập. Receipt dùng storageKey do backend cấp để cleanup; không xóa bằng cách đoán từ một photoURL. Xem báo cáo W2-05 để phân biệt phần đã test và upload đang bị chặn.
 
 Cập nhật tích hợp 18/11/2026: `/home` đi qua HomeScreen trước khi dựng NotesHomeScreen. HomeScreen đọc phiên Firebase, cấp UID/banner/logout và nối các provider Notes theo account. Nếu router dựng NotesHomeScreen trực tiếp, widget nhận thiếu user và callbacks, nên đăng nhập đúng vẫn thiếu UID, banner và đăng xuất. Đổi lại điểm nối này làm 12 ca Auth/Verification lỗi trước đó qua trở lại, full suite đạt 68 tests. Phần lưu Notes theo UID thuộc repository nhóm đã có; dữ liệu key chung cũ cần M2 chốt cách gán owner khi chuyển store.
 

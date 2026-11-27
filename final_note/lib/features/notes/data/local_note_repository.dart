@@ -1064,6 +1064,96 @@ class LocalNoteRepository implements NoteRepository {
     }, emitLabels: false);
   }
 
+  @override
+  Future<List<Note>> synchronizeNotes(
+    String uid, {
+    bool simulateOfflineFailure = false,
+  }) async {
+    await _guardWrite();
+    if (simulateOfflineFailure) {
+      await _change(uid, (bucket, _) {
+        for (var i = 0; i < bucket.length; i++) {
+          final current = bucket[i];
+          if (current.syncStatus != NoteSyncStatus.synced) {
+            bucket[i] = current.copyWith(syncStatus: NoteSyncStatus.failed);
+          }
+        }
+        return null;
+      }, emitLabels: false);
+      throw const NoteFailure(
+        'Offline or network error: pending changes are saved locally and will sync when online.',
+      );
+    }
+
+    return _change(uid, (bucket, _) {
+      for (var i = 0; i < bucket.length; i++) {
+        final current = bucket[i];
+        if (current.syncStatus != NoteSyncStatus.synced) {
+          bucket[i] = current.copyWith(syncStatus: NoteSyncStatus.synced);
+        }
+      }
+      return List<Note>.unmodifiable(sortNotes(bucket));
+    }, emitLabels: false);
+  }
+
+  @override
+  Future<Note> resolveConflict(
+    String uid, {
+    required Note localNote,
+    required Note remoteNote,
+  }) async {
+    await _guardWrite();
+    if (localNote.id != remoteNote.id) {
+      throw const NoteFailure(
+        'Cannot resolve conflict for notes with different IDs.',
+      );
+    }
+
+    return _change(uid, (bucket, labelSet) {
+      // Deterministic Last-Write-Wins (LWW) by updatedAt timestamp, with safe
+      // content preservation if both copies contain distinct non-empty bodies.
+      final localIsNewer = !localNote.updatedAt.isBefore(remoteNote.updatedAt);
+      final winner = localIsNewer ? localNote : remoteNote;
+      final loser = localIsNewer ? remoteNote : localNote;
+
+      var resolvedContent = winner.content;
+      if (loser.content.trim().isNotEmpty &&
+          loser.content.trim() != winner.content.trim() &&
+          !winner.content.contains(loser.content.trim())) {
+        resolvedContent =
+            '${winner.content}\n\n--- [Conflict backup from ${loser.updatedAt.toIso8601String()}] ---\n${loser.content}';
+      }
+
+      final mergedLabels = <String>{...winner.labels, ...loser.labels}.toList();
+      final mergedAttachments = <NoteAttachment>[...winner.attachments];
+      for (final att in loser.attachments) {
+        if (!mergedAttachments.any((item) => item.id == att.id)) {
+          mergedAttachments.add(att);
+        }
+      }
+
+      final resolved = winner.copyWith(
+        ownerUid: uid,
+        content: resolvedContent,
+        labels: List<String>.unmodifiable(mergedLabels),
+        attachments: List<NoteAttachment>.unmodifiable(mergedAttachments),
+        syncStatus: NoteSyncStatus.synced,
+      );
+
+      for (final label in resolved.labels) {
+        labelSet.add(label);
+      }
+
+      final index = bucket.indexWhere((item) => item.id == resolved.id);
+      if (index == -1) {
+        bucket.add(resolved);
+      } else {
+        bucket[index] = resolved;
+      }
+      return resolved;
+    });
+  }
+
   List<String> _sortedLabelsFrom(Set<String> labels) {
     final sorted = labels.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));

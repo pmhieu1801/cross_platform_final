@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../features/auth/domain/auth_repository.dart';
 import '../features/notes/application/note_password_security.dart';
 import '../features/notes/domain/note_repository.dart';
+import '../features/preferences/domain/user_preferences.dart';
 import '../models/note.dart';
 import '../services/note_storage.dart';
 import '../theme/theme.dart';
@@ -30,6 +31,14 @@ class NotesHomeScreen extends StatefulWidget {
     this.authBusy = false,
     this.authError,
     this.onLogout,
+    this.onChangePassword,
+    this.onProfile,
+    this.onPreferences,
+    this.viewMode,
+    this.onViewModeChanged,
+    this.viewModeEnabled = true,
+    this.preferencesError,
+    this.noteFontScale = 1,
     this.onSaveNote,
     this.onDeleteNote,
     this.onTogglePin,
@@ -45,6 +54,7 @@ class NotesHomeScreen extends StatefulWidget {
     this.onShareNote,
     this.onUpdateSharePermission,
     this.onRevokeShare,
+    this.onSynchronizeNotes,
     this.editorDebounceDuration = const Duration(milliseconds: 400),
   });
 
@@ -70,6 +80,17 @@ class NotesHomeScreen extends StatefulWidget {
   final bool authBusy;
   final String? authError;
   final VoidCallback? onLogout;
+  final VoidCallback? onChangePassword;
+  final VoidCallback? onProfile;
+  final VoidCallback? onPreferences;
+
+  /// Optional controlled settings supplied by M1; standalone previews keep
+  /// their existing local layout. Note data/autosave remain owned by M2.
+  final NotesViewMode? viewMode;
+  final ValueChanged<NotesViewMode>? onViewModeChanged;
+  final bool viewModeEnabled;
+  final String? preferencesError;
+  final double noteFontScale;
 
   /// External persistence callbacks. When omitted, mutations update local state.
   final Future<Note?> Function(Note note, {required bool isAutosave})?
@@ -129,6 +150,10 @@ class NotesHomeScreen extends StatefulWidget {
   )?
   onRevokeShare;
 
+  /// Offline synchronization callback (R31).
+  final Future<String?> Function({bool simulateOfflineFailure})?
+  onSynchronizeNotes;
+
   final Duration editorDebounceDuration;
 
   @override
@@ -140,7 +165,12 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   late Set<String> _localLabelCatalog;
   final _searchController = TextEditingController();
   _NotesSection _section = _NotesSection.all;
-  _NotesLayout _layout = _NotesLayout.grid;
+  _NotesLayout _localLayout = _NotesLayout.grid;
+  _NotesLayout get _layout => widget.viewMode == null
+      ? _localLayout
+      : widget.viewMode == NotesViewMode.grid
+      ? _NotesLayout.grid
+      : _NotesLayout.list;
   String? _selectedLabel;
   String _query = '';
 
@@ -150,6 +180,9 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   int _editorSessionCounter = 0;
   String _editorSessionKey = 'editor-session-0';
   final Set<String> _localUnlockedNoteIds = <String>{};
+  bool _offlineMode = false;
+  bool _syncing = false;
+  String? _syncFeedback;
 
   @override
   void initState() {
@@ -820,6 +853,55 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
+  int get _unsyncedCount =>
+      _allNotes.where((n) => n.syncStatus != NoteSyncStatus.synced).length;
+
+  Future<void> _handleSyncNow() async {
+    if (_syncing) return;
+    setState(() {
+      _syncing = true;
+      _syncFeedback = null;
+    });
+    if (widget.onSynchronizeNotes != null) {
+      final error = await widget.onSynchronizeNotes!(
+        simulateOfflineFailure: _offlineMode,
+      );
+      if (!mounted) return;
+      setState(() {
+        _syncing = false;
+        _syncFeedback = error;
+      });
+      return;
+    }
+
+    // Standalone local mode fallback (R31).
+    setState(() {
+      _syncing = false;
+      if (_offlineMode) {
+        for (var i = 0; i < _localNotes.length; i++) {
+          final current = _localNotes[i];
+          if (current.syncStatus != NoteSyncStatus.synced) {
+            _localNotes[i] = current.copyWith(
+              syncStatus: NoteSyncStatus.failed,
+            );
+          }
+        }
+        _syncFeedback = 'Offline mode active: changes are saved locally and queued for sync.';
+      } else {
+        for (var i = 0; i < _localNotes.length; i++) {
+          final current = _localNotes[i];
+          if (current.syncStatus != NoteSyncStatus.synced) {
+            _localNotes[i] = current.copyWith(
+              syncStatus: NoteSyncStatus.synced,
+            );
+          }
+        }
+        _syncFeedback = null;
+      }
+    });
+    await _persistLocalNotes();
+  }
+
   Future<void> _openEditor({Note? note, required bool isWide}) async {
     if (note != null && note.isPasswordProtected && !_isNoteUnlocked(note)) {
       final unlocked = await _ensureNoteUnlocked(note);
@@ -850,6 +932,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           child: SingleChildScrollView(
             child: NoteEditorPanel(
               initialNote: note,
+              noteFontScale: widget.noteFontScale,
               availableLabels: _labels,
               debounceDuration: widget.editorDebounceDuration,
               readOnly: _isReadOnlyForViewer(note),
@@ -925,6 +1008,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                           child: NoteEditorPanel(
                             key: ValueKey(_editorSessionKey),
                             initialNote: _activeEditorNote,
+                            noteFontScale: widget.noteFontScale,
                             availableLabels: _labels,
                             embedded: true,
                             debounceDuration: widget.editorDebounceDuration,
@@ -1332,6 +1416,17 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                 const SizedBox(height: AppSpacing.xl),
               ],
               _buildSectionHeading(context, notes.length),
+              if (_syncFeedback != null) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _syncFeedback!,
+                    key: const Key('notes-sync-feedback'),
+                    style: text.bodySmall?.copyWith(color: tokens.warning),
+                  ),
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               _buildLabelFilters(context),
               const SizedBox(height: AppSpacing.lg),
@@ -1514,6 +1609,27 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               ),
             ),
           ),
+          if (widget.onChangePassword != null)
+            IconButton(
+              key: const Key('open-change-password'),
+              tooltip: 'Change password',
+              onPressed: widget.authBusy ? null : widget.onChangePassword,
+              icon: const Icon(Icons.lock_reset_rounded),
+            ),
+          if (widget.onProfile != null)
+            IconButton(
+              key: const Key('open-profile'),
+              tooltip: 'Profile',
+              onPressed: widget.authBusy ? null : widget.onProfile,
+              icon: const Icon(Icons.person_outline_rounded),
+            ),
+          if (widget.onPreferences != null)
+            IconButton(
+              key: const Key('open-preferences'),
+              tooltip: 'Settings',
+              onPressed: widget.authBusy ? null : widget.onPreferences,
+              icon: const Icon(Icons.settings_outlined),
+            ),
           if (widget.onLogout != null)
             OutlinedButton.icon(
               key: const Key('logout'),
@@ -1617,49 +1733,77 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   }
 
   Widget _buildSearchAndLayout(BuildContext context, {required bool isWide}) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: TextField(
-            key: const Key('notes-search-input'),
-            controller: _searchController,
-            onChanged: (value) => setState(() => _query = value),
-            decoration: InputDecoration(
-              hintText: 'Search your notes...',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _query.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Clear search',
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _query = '');
-                      },
-                      icon: const Icon(Icons.close_rounded),
-                    ),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('notes-search-input'),
+                controller: _searchController,
+                onChanged: (value) => setState(() => _query = value),
+                decoration: InputDecoration(
+                  hintText: 'Search your notes...',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear search',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            FilledButton.icon(
+              key: const Key('open-ai-qa-button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.charcoal,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm + 2,
+                ),
+              ),
+              onPressed: () => _openAiQaDialog(isWide: isWide),
+              icon: const Icon(Icons.auto_awesome_rounded, size: 17),
+              label: const Text('Ask AI'),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            _LayoutToggle(
+              layout: _layout,
+              enabled:
+                  widget.viewModeEnabled &&
+                  (widget.viewMode == null || widget.onViewModeChanged != null),
+              onChanged: (layout) {
+                if (widget.onViewModeChanged != null) {
+                  widget.onViewModeChanged!(
+                    layout == _NotesLayout.grid
+                        ? NotesViewMode.grid
+                        : NotesViewMode.list,
+                  );
+                } else {
+                  setState(() => _localLayout = layout);
+                }
+              },
+            ),
+          ],
+        ),
+        if (widget.preferencesError != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              widget.preferencesError!,
+              style: TextStyle(color: context.colors.error),
             ),
           ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        FilledButton.icon(
-          key: const Key('open-ai-qa-button'),
-          style: FilledButton.styleFrom(
-            backgroundColor: AppColors.charcoal,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.sm + 2,
-            ),
-          ),
-          onPressed: () => _openAiQaDialog(isWide: isWide),
-          icon: const Icon(Icons.auto_awesome_rounded, size: 17),
-          label: const Text('Ask AI'),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        _LayoutToggle(
-          layout: _layout,
-          onChanged: (layout) => setState(() => _layout = layout),
-        ),
+        ],
       ],
     );
   }
@@ -1711,6 +1855,42 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                 onPressed: () => setState(() => _selectedLabel = null),
                 icon: const Icon(Icons.close_rounded, size: 16),
                 label: const Text('Clear filter'),
+              ),
+            FilterChip(
+              key: const Key('toggle-offline-mode-button'),
+              label: Text(_offlineMode ? 'Offline mode' : 'Online'),
+              selected: _offlineMode,
+              avatar: Icon(
+                _offlineMode
+                    ? Icons.cloud_off_rounded
+                    : Icons.cloud_done_outlined,
+                size: 16,
+              ),
+              onSelected: (value) {
+                setState(() {
+                  _offlineMode = value;
+                  _syncFeedback = value
+                      ? 'Offline mode active: edits save locally first.'
+                      : null;
+                });
+                if (!value && _unsyncedCount > 0) {
+                  unawaited(_handleSyncNow());
+                }
+              },
+            ),
+            if (_unsyncedCount > 0 || _offlineMode || _syncFeedback != null)
+              TextButton.icon(
+                key: const Key('sync-notes-now-button'),
+                onPressed: _syncing ? null : _handleSyncNow,
+                icon: Icon(
+                  _syncing ? Icons.sync_rounded : Icons.cloud_sync_outlined,
+                  size: 16,
+                ),
+                label: Text(
+                  _unsyncedCount > 0
+                      ? 'Sync now ($_unsyncedCount)'
+                      : 'Sync now',
+                ),
               ),
             TextButton.icon(
               key: const Key('manage-labels-button'),
@@ -1773,7 +1953,9 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             crossAxisCount: columns,
             mainAxisSpacing: AppSpacing.lg,
             crossAxisSpacing: AppSpacing.lg,
-            mainAxisExtent: isCompact ? 236 : 254,
+            mainAxisExtent:
+                (isCompact ? 236 : 254) +
+                (widget.noteFontScale - 1).clamp(0.0, 0.5).toDouble() * 180,
           ),
           itemBuilder: (context, index) {
             final note = notes[index];
@@ -1781,6 +1963,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               note: note,
               isUnlocked: _isNoteUnlocked(note),
               viewerShareEntry: _viewerShareEntry(note),
+              fontScale: widget.noteFontScale,
               onTap: () => _openEditor(note: note, isWide: isWide),
               onTogglePin: () => _togglePin(note),
               onDelete: () => _confirmAndDelete(note),
@@ -1799,6 +1982,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             note: note,
             isUnlocked: _isNoteUnlocked(note),
             viewerShareEntry: _viewerShareEntry(note),
+            fontScale: widget.noteFontScale,
             onTap: () => _openEditor(note: note, isWide: isWide),
             onTogglePin: () => _togglePin(note),
             onDelete: () => _confirmAndDelete(note),
@@ -2067,10 +2251,15 @@ class _SidebarItem extends StatelessWidget {
 }
 
 class _LayoutToggle extends StatelessWidget {
-  const _LayoutToggle({required this.layout, required this.onChanged});
+  const _LayoutToggle({
+    required this.layout,
+    required this.onChanged,
+    this.enabled = true,
+  });
 
   final _NotesLayout layout;
   final ValueChanged<_NotesLayout> onChanged;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -2089,13 +2278,13 @@ class _LayoutToggle extends StatelessWidget {
             icon: Icons.grid_view_rounded,
             label: 'Grid view',
             selected: layout == _NotesLayout.grid,
-            onTap: () => onChanged(_NotesLayout.grid),
+            onTap: enabled ? () => onChanged(_NotesLayout.grid) : null,
           ),
           _LayoutButton(
             icon: Icons.view_agenda_outlined,
             label: 'List view',
             selected: layout == _NotesLayout.list,
-            onTap: () => onChanged(_NotesLayout.list),
+            onTap: enabled ? () => onChanged(_NotesLayout.list) : null,
           ),
         ],
       ),
@@ -2114,7 +2303,7 @@ class _LayoutButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -2184,6 +2373,7 @@ class _NoteCard extends StatelessWidget {
   const _NoteCard({
     required this.note,
     required this.isUnlocked,
+    this.fontScale = 1,
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
@@ -2193,6 +2383,7 @@ class _NoteCard extends StatelessWidget {
   final Note note;
   final bool isUnlocked;
   final NoteShareEntry? viewerShareEntry;
+  final double fontScale;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
@@ -2378,7 +2569,7 @@ class _NoteCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: text.titleLarge?.copyWith(
-                        fontSize: 18,
+                        fontSize: 17 * fontScale,
                         fontWeight: FontWeight.w700,
                         color: inkColor,
                         height: 1.25,
@@ -2421,6 +2612,9 @@ class _NoteCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: text.bodySmall?.copyWith(
                                 color: subInkColor,
+                                fontSize:
+                                    (text.bodySmall?.fontSize ?? 12) *
+                                    fontScale,
                                 fontStyle: FontStyle.italic,
                                 height: 1.5,
                               ),
@@ -2434,6 +2628,8 @@ class _NoteCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: text.bodySmall?.copyWith(
                           color: subInkColor,
+                          fontSize:
+                              (text.bodySmall?.fontSize ?? 12) * fontScale,
                           height: 1.55,
                         ),
                       ),
@@ -2517,6 +2713,7 @@ class _NoteListTile extends StatelessWidget {
   const _NoteListTile({
     required this.note,
     required this.isUnlocked,
+    this.fontScale = 1,
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
@@ -2526,6 +2723,7 @@ class _NoteListTile extends StatelessWidget {
   final Note note;
   final bool isUnlocked;
   final NoteShareEntry? viewerShareEntry;
+  final double fontScale;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
@@ -2588,6 +2786,9 @@ class _NoteListTile extends StatelessWidget {
                             style: text.titleMedium?.copyWith(
                               fontWeight: FontWeight.w700,
                               color: inkColor,
+                              fontSize:
+                                  (text.titleMedium?.fontSize ?? 15) *
+                                  fontScale,
                             ),
                           ),
                         ),
@@ -2690,6 +2891,7 @@ class _NoteListTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: text.bodySmall?.copyWith(
                         color: subInkColor,
+                        fontSize: (text.bodySmall?.fontSize ?? 12) * fontScale,
                         fontStyle: isLockedContent
                             ? FontStyle.italic
                             : FontStyle.normal,

@@ -567,6 +567,38 @@ class NoteActions extends Notifier<NoteActionState> {
     }
   }
 
+  Future<String?> synchronizeNotes({
+    bool simulateOfflineFailure = false,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return 'Invalid session.';
+
+    state = state.copyWith(busy: true, clearError: true);
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      await repository.synchronizeNotes(
+        session.uid,
+        simulateOfflineFailure: simulateOfflineFailure,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(busy: false, clearError: true);
+      return null;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(busy: false, error: error.message);
+      }
+      return error.message;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(
+          busy: false,
+          error: 'Could not synchronize notes.',
+        );
+      }
+      return 'Could not synchronize notes.';
+    }
+  }
+
   void clearError() {
     state = state.copyWith(clearError: true);
   }
