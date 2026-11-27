@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../features/auth/domain/auth_repository.dart';
+import '../features/preferences/domain/user_preferences.dart';
 import '../models/note.dart';
 import '../services/note_storage.dart';
 import '../theme/theme.dart';
@@ -26,6 +27,13 @@ class NotesHomeScreen extends StatefulWidget {
     this.authError,
     this.onLogout,
     this.onChangePassword,
+    this.onProfile,
+    this.onPreferences,
+    this.viewMode,
+    this.onViewModeChanged,
+    this.viewModeEnabled = true,
+    this.preferencesError,
+    this.noteFontScale = 1,
     this.onSaveNote,
     this.onDeleteNote,
     this.onTogglePin,
@@ -55,6 +63,16 @@ class NotesHomeScreen extends StatefulWidget {
   final String? authError;
   final VoidCallback? onLogout;
   final VoidCallback? onChangePassword;
+  final VoidCallback? onProfile;
+  final VoidCallback? onPreferences;
+
+  /// Optional controlled settings supplied by M1; standalone previews keep
+  /// their existing local layout. Note data/autosave remain owned by M2.
+  final NotesViewMode? viewMode;
+  final ValueChanged<NotesViewMode>? onViewModeChanged;
+  final bool viewModeEnabled;
+  final String? preferencesError;
+  final double noteFontScale;
 
   /// External persistence callbacks. When omitted, mutations update local state.
   final Future<Note?> Function(Note note, {required bool isAutosave})?
@@ -76,7 +94,12 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   late Set<String> _localLabelCatalog;
   final _searchController = TextEditingController();
   _NotesSection _section = _NotesSection.all;
-  _NotesLayout _layout = _NotesLayout.grid;
+  _NotesLayout _localLayout = _NotesLayout.grid;
+  _NotesLayout get _layout => widget.viewMode == null
+      ? _localLayout
+      : widget.viewMode == NotesViewMode.grid
+      ? _NotesLayout.grid
+      : _NotesLayout.list;
   String? _selectedLabel;
   String _query = '';
 
@@ -338,6 +361,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           child: SingleChildScrollView(
             child: NoteEditorPanel(
               initialNote: note,
+              noteFontScale: widget.noteFontScale,
               availableLabels: _labels,
               debounceDuration: widget.editorDebounceDuration,
               onSave: _saveNote,
@@ -401,6 +425,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                               _activeEditorNote?.id ?? 'new-note-panel',
                             ),
                             initialNote: _activeEditorNote,
+                            noteFontScale: widget.noteFontScale,
                             availableLabels: _labels,
                             embedded: true,
                             debounceDuration: widget.editorDebounceDuration,
@@ -786,6 +811,20 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               onPressed: widget.authBusy ? null : widget.onChangePassword,
               icon: const Icon(Icons.lock_reset_rounded),
             ),
+          if (widget.onProfile != null)
+            IconButton(
+              key: const Key('open-profile'),
+              tooltip: 'Profile',
+              onPressed: widget.authBusy ? null : widget.onProfile,
+              icon: const Icon(Icons.person_outline_rounded),
+            ),
+          if (widget.onPreferences != null)
+            IconButton(
+              key: const Key('open-preferences'),
+              tooltip: 'Settings',
+              onPressed: widget.authBusy ? null : widget.onPreferences,
+              icon: const Icon(Icons.settings_outlined),
+            ),
           if (widget.onLogout != null)
             OutlinedButton.icon(
               key: const Key('logout'),
@@ -878,34 +917,62 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   }
 
   Widget _buildSearchAndLayout(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: TextField(
-            key: const Key('notes-search-input'),
-            controller: _searchController,
-            onChanged: (value) => setState(() => _query = value),
-            decoration: InputDecoration(
-              hintText: 'Search your notes...',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _query.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Clear search',
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _query = '');
-                      },
-                      icon: const Icon(Icons.close_rounded),
-                    ),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('notes-search-input'),
+                controller: _searchController,
+                onChanged: (value) => setState(() => _query = value),
+                decoration: InputDecoration(
+                  hintText: 'Search your notes...',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear search',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            _LayoutToggle(
+              layout: _layout,
+              enabled:
+                  widget.viewModeEnabled &&
+                  (widget.viewMode == null || widget.onViewModeChanged != null),
+              onChanged: (layout) {
+                if (widget.onViewModeChanged != null) {
+                  widget.onViewModeChanged!(
+                    layout == _NotesLayout.grid
+                        ? NotesViewMode.grid
+                        : NotesViewMode.list,
+                  );
+                } else {
+                  setState(() => _localLayout = layout);
+                }
+              },
+            ),
+          ],
+        ),
+        if (widget.preferencesError != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              widget.preferencesError!,
+              style: TextStyle(color: context.colors.error),
             ),
           ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        _LayoutToggle(
-          layout: _layout,
-          onChanged: (layout) => setState(() => _layout = layout),
-        ),
+        ],
       ],
     );
   }
@@ -1016,12 +1083,15 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             crossAxisCount: columns,
             mainAxisSpacing: AppSpacing.lg,
             crossAxisSpacing: AppSpacing.lg,
-            mainAxisExtent: isCompact ? 228 : 246,
+            mainAxisExtent:
+                (isCompact ? 228 : 246) +
+                (widget.noteFontScale - 1).clamp(0.0, 0.5).toDouble() * 180,
           ),
           itemBuilder: (context, index) {
             final note = notes[index];
             return _NoteCard(
               note: note,
+              fontScale: widget.noteFontScale,
               onTap: () => _openEditor(note: note, isWide: isWide),
               onTogglePin: () => _togglePin(note),
               onDelete: () => _confirmAndDelete(note),
@@ -1038,6 +1108,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         for (final note in notes) ...[
           _NoteListTile(
             note: note,
+            fontScale: widget.noteFontScale,
             onTap: () => _openEditor(note: note, isWide: isWide),
             onTogglePin: () => _togglePin(note),
             onDelete: () => _confirmAndDelete(note),
@@ -1159,10 +1230,15 @@ class _SidebarItem extends StatelessWidget {
 }
 
 class _LayoutToggle extends StatelessWidget {
-  const _LayoutToggle({required this.layout, required this.onChanged});
+  const _LayoutToggle({
+    required this.layout,
+    required this.onChanged,
+    this.enabled = true,
+  });
 
   final _NotesLayout layout;
   final ValueChanged<_NotesLayout> onChanged;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -1181,13 +1257,13 @@ class _LayoutToggle extends StatelessWidget {
             icon: Icons.grid_view_rounded,
             label: 'Grid view',
             selected: layout == _NotesLayout.grid,
-            onTap: () => onChanged(_NotesLayout.grid),
+            onTap: enabled ? () => onChanged(_NotesLayout.grid) : null,
           ),
           _LayoutButton(
             icon: Icons.view_agenda_outlined,
             label: 'List view',
             selected: layout == _NotesLayout.list,
-            onTap: () => onChanged(_NotesLayout.list),
+            onTap: enabled ? () => onChanged(_NotesLayout.list) : null,
           ),
         ],
       ),
@@ -1206,7 +1282,7 @@ class _LayoutButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1269,12 +1345,14 @@ class _LabelFilterChip extends StatelessWidget {
 class _NoteCard extends StatelessWidget {
   const _NoteCard({
     required this.note,
+    this.fontScale = 1,
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
   });
 
   final Note note;
+  final double fontScale;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
@@ -1392,7 +1470,7 @@ class _NoteCard extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: text.titleLarge?.copyWith(
-                    fontSize: 17,
+                    fontSize: 17 * fontScale,
                     fontWeight: FontWeight.w700,
                     height: 1.25,
                   ),
@@ -1405,6 +1483,7 @@ class _NoteCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: text.bodySmall?.copyWith(
                       color: colors.onSurfaceVariant,
+                      fontSize: (text.bodySmall?.fontSize ?? 12) * fontScale,
                       height: 1.55,
                     ),
                   ),
@@ -1435,12 +1514,14 @@ class _NoteCard extends StatelessWidget {
 class _NoteListTile extends StatelessWidget {
   const _NoteListTile({
     required this.note,
+    this.fontScale = 1,
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
   });
 
   final Note note;
+  final double fontScale;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
@@ -1490,6 +1571,9 @@ class _NoteListTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: text.titleMedium?.copyWith(
                               fontWeight: FontWeight.w700,
+                              fontSize:
+                                  (text.titleMedium?.fontSize ?? 15) *
+                                  fontScale,
                             ),
                           ),
                         ),
@@ -1527,6 +1611,7 @@ class _NoteListTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: text.bodySmall?.copyWith(
                         color: colors.onSurfaceVariant,
+                        fontSize: (text.bodySmall?.fontSize ?? 12) * fontScale,
                       ),
                     ),
                     if (note.labels.isNotEmpty) ...[
