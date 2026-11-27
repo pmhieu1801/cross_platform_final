@@ -299,6 +299,141 @@ class NoteActions extends Notifier<NoteActionState> {
     }
   }
 
+  Future<Note?> enableNotePassword(
+    String noteId, {
+    required String password,
+    required String confirmPassword,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return null;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final updated = await repository.enableNotePassword(
+        session.uid,
+        noteId,
+        password: password,
+        confirmPassword: confirmPassword,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(clearError: true);
+      return updated;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return null;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not enable note password.');
+      }
+      return null;
+    }
+  }
+
+  Future<bool> verifyNotePassword(String noteId, String password) async {
+    final session = _activeSession();
+    if (session == null) return false;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final ok = await repository.verifyNotePassword(
+        session.uid,
+        noteId,
+        password,
+      );
+      if (!ref.mounted || !session.isActive) return false;
+      state = state.copyWith(clearError: true);
+      return ok;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return false;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not verify note password.');
+      }
+      return false;
+    }
+  }
+
+  Future<Note?> changeNotePassword(
+    String noteId, {
+    required String currentPassword,
+    required String newPassword,
+    required String confirmNewPassword,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return null;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final updated = await repository.changeNotePassword(
+        session.uid,
+        noteId,
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+        confirmNewPassword: confirmNewPassword,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(clearError: true);
+      return updated;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return null;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not change note password.');
+      }
+      return null;
+    }
+  }
+
+  Future<Note?> disableNotePassword(
+    String noteId, {
+    required String currentPassword,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return null;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final updated = await repository.disableNotePassword(
+        session.uid,
+        noteId,
+        currentPassword: currentPassword,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(clearError: true);
+      return updated;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return null;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not disable note password.');
+      }
+      return null;
+    }
+  }
+
+  bool isNoteUnlocked(String noteId) {
+    final session = _activeSession();
+    if (session == null) return false;
+    return ref.read(noteRepositoryProvider).isNoteUnlocked(session.uid, noteId);
+  }
+
+  void lockNoteSession(String noteId) {
+    final session = _activeSession();
+    if (session == null) return;
+    ref.read(noteRepositoryProvider).lockNoteSession(session.uid, noteId);
+  }
+
   void clearError() {
     state = state.copyWith(clearError: true);
   }

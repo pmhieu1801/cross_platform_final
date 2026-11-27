@@ -180,6 +180,8 @@ class Note {
     this.status = NoteStatus.normal,
     this.syncStatus = NoteSyncStatus.pending,
     this.attachments = const <NoteAttachment>[],
+    this.passwordHash,
+    this.passwordSalt,
   });
 
   final String id;
@@ -194,6 +196,15 @@ class Note {
   final NoteStatus status;
   final NoteSyncStatus syncStatus;
   final List<NoteAttachment> attachments;
+  final String? passwordHash;
+  final String? passwordSalt;
+
+  /// Whether this note is protected by an individual note password (R23).
+  bool get isPasswordProtected =>
+      passwordHash != null &&
+      passwordHash!.isNotEmpty &&
+      passwordSalt != null &&
+      passwordSalt!.isNotEmpty;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -210,6 +221,8 @@ class Note {
     'attachments': attachments
         .map((attachment) => attachment.toJson())
         .toList(),
+    if (passwordHash != null) 'passwordHash': passwordHash,
+    if (passwordSalt != null) 'passwordSalt': passwordSalt,
   };
 
   factory Note.fromJson(Map<String, dynamic> json) {
@@ -251,6 +264,8 @@ class Note {
         orElse: () => NoteSyncStatus.pending,
       ),
       attachments: attachments,
+      passwordHash: json['passwordHash']?.toString(),
+      passwordSalt: json['passwordSalt']?.toString(),
     );
   }
 
@@ -268,6 +283,9 @@ class Note {
     NoteStatus? status,
     NoteSyncStatus? syncStatus,
     List<NoteAttachment>? attachments,
+    String? passwordHash,
+    String? passwordSalt,
+    bool clearPasswordProtection = false,
   }) {
     return Note(
       id: id ?? this.id,
@@ -282,6 +300,12 @@ class Note {
       status: status ?? this.status,
       syncStatus: syncStatus ?? this.syncStatus,
       attachments: attachments ?? this.attachments,
+      passwordHash: clearPasswordProtection
+          ? null
+          : (passwordHash ?? this.passwordHash),
+      passwordSalt: clearPasswordProtection
+          ? null
+          : (passwordSalt ?? this.passwordSalt),
     );
   }
 }

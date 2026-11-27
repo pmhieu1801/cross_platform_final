@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../features/auth/domain/auth_repository.dart';
+import '../features/notes/application/note_password_security.dart';
+import '../features/notes/domain/note_repository.dart';
 import '../models/note.dart';
 import '../services/note_storage.dart';
 import '../theme/theme.dart';
@@ -33,6 +35,12 @@ class NotesHomeScreen extends StatefulWidget {
     this.onAddLabel,
     this.onRenameLabel,
     this.onDeleteLabel,
+    this.onEnableNotePassword,
+    this.onVerifyNotePassword,
+    this.onChangeNotePassword,
+    this.onDisableNotePassword,
+    this.isNoteUnlocked,
+    this.onLockNoteSession,
     this.editorDebounceDuration = const Duration(milliseconds: 400),
   });
 
@@ -65,6 +73,34 @@ class NotesHomeScreen extends StatefulWidget {
   final Future<String?> Function(String oldName, String newName)? onRenameLabel;
   final Future<String?> Function(String name)? onDeleteLabel;
 
+  /// Individual note password protection callbacks (R23, R24).
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String password,
+    String confirmPassword,
+  )?
+  onEnableNotePassword;
+
+  final Future<String?> Function(String noteId, String password)?
+  onVerifyNotePassword;
+
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String currentPassword,
+    String newPassword,
+    String confirmNewPassword,
+  )?
+  onChangeNotePassword;
+
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String currentPassword,
+  )?
+  onDisableNotePassword;
+
+  final bool Function(String noteId)? isNoteUnlocked;
+  final void Function(String noteId)? onLockNoteSession;
+
   final Duration editorDebounceDuration;
 
   @override
@@ -85,6 +121,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   bool _isCreatingNew = false;
   int _editorSessionCounter = 0;
   String _editorSessionKey = 'editor-session-0';
+  final Set<String> _localUnlockedNoteIds = <String>{};
 
   @override
   void initState() {
@@ -134,16 +171,23 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     return merged;
   }
 
+  bool _isNoteUnlocked(Note note) {
+    if (!note.isPasswordProtected) return true;
+    if (_localUnlockedNoteIds.contains(note.id)) return true;
+    return widget.isNoteUnlocked?.call(note.id) ?? false;
+  }
+
   List<Note> get _visibleNotes {
     final query = _query.trim().toLowerCase();
     final filtered = _allNotes.where((note) {
       final matchesSection = _section == _NotesSection.all || note.isPinned;
       final matchesLabel =
           _selectedLabel == null || note.labels.contains(_selectedLabel);
+      final canSearchContent = _isNoteUnlocked(note);
       final matchesQuery =
           query.isEmpty ||
           note.title.toLowerCase().contains(query) ||
-          note.content.toLowerCase().contains(query) ||
+          (canSearchContent && note.content.toLowerCase().contains(query)) ||
           note.labels.any((label) => label.toLowerCase().contains(query));
       return matchesSection && matchesLabel && matchesQuery;
     });
@@ -205,9 +249,229 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   }
 
   Future<void> _confirmAndDelete(Note note) async {
+    if (note.isPasswordProtected && !_isNoteUnlocked(note)) {
+      final unlocked = await _ensureNoteUnlocked(note);
+      if (!unlocked || !mounted) return;
+    }
     final confirmed = await confirmDeleteNote(context, title: note.title);
     if (!confirmed || !mounted) return;
     await _deleteNoteWithoutConfirm(note.id);
+  }
+
+  Future<bool> _ensureNoteUnlocked(Note note) async {
+    if (_isNoteUnlocked(note)) return true;
+    final unlocked = await showUnlockNoteDialog(
+      context,
+      note: note,
+      onVerify: (password) => _handleVerifyNotePassword(note, password),
+    );
+    return unlocked;
+  }
+
+  Future<String?> _handleVerifyNotePassword(Note note, String password) async {
+    if (widget.onVerifyNotePassword != null) {
+      final error = await widget.onVerifyNotePassword!(note.id, password);
+      if (error == null && mounted) {
+        setState(() => _localUnlockedNoteIds.add(note.id));
+      }
+      return error;
+    }
+    final ok = NotePasswordSecurity.verifyPassword(
+      password: password,
+      salt: note.passwordSalt,
+      expectedHash: note.passwordHash,
+    );
+    if (!ok) return 'Incorrect note password.';
+    if (mounted) {
+      setState(() => _localUnlockedNoteIds.add(note.id));
+    }
+    return null;
+  }
+
+  Future<({Note? note, String? error})> _handleEnableNotePassword(
+    Note draft,
+    String password,
+    String confirmPassword,
+  ) async {
+    if (widget.onEnableNotePassword != null) {
+      final res = await widget.onEnableNotePassword!(
+        draft.id,
+        password,
+        confirmPassword,
+      );
+      if (res.note != null && mounted) {
+        setState(() {
+          _localUnlockedNoteIds.add(draft.id);
+          if (_activeEditorNote?.id == draft.id) {
+            _activeEditorNote = res.note;
+          }
+        });
+      }
+      return res;
+    }
+
+    try {
+      final validated = NotePasswordSecurity.validateNewPassword(
+        password: password,
+        confirmPassword: confirmPassword,
+      );
+      final salt = NotePasswordSecurity.generateSalt();
+      final hash = NotePasswordSecurity.hashPassword(
+        password: validated,
+        salt: salt,
+      );
+      final updated = draft.copyWith(
+        passwordSalt: salt,
+        passwordHash: hash,
+        updatedAt: DateTime.now(),
+        syncStatus: NoteSyncStatus.pending,
+      );
+      setState(() {
+        _localUnlockedNoteIds.add(updated.id);
+        final index = _localNotes.indexWhere((item) => item.id == updated.id);
+        if (index == -1) {
+          _localNotes.add(updated);
+        } else {
+          _localNotes[index] = updated;
+        }
+        if (_activeEditorNote?.id == updated.id) {
+          _activeEditorNote = updated;
+        }
+      });
+      await _persistLocalNotes();
+      return (note: updated, error: null);
+    } on NoteFailure catch (error) {
+      return (note: null, error: error.message);
+    }
+  }
+
+  Future<({Note? note, String? error})> _handleChangeNotePassword(
+    Note draft,
+    String currentPassword,
+    String newPassword,
+    String confirmNewPassword,
+  ) async {
+    if (widget.onChangeNotePassword != null) {
+      final res = await widget.onChangeNotePassword!(
+        draft.id,
+        currentPassword,
+        newPassword,
+        confirmNewPassword,
+      );
+      if (res.note != null && mounted) {
+        setState(() {
+          _localUnlockedNoteIds.add(draft.id);
+          if (_activeEditorNote?.id == draft.id) {
+            _activeEditorNote = res.note;
+          }
+        });
+      }
+      return res;
+    }
+
+    final existingIndex = _localNotes.indexWhere((item) => item.id == draft.id);
+    final source = existingIndex == -1 ? draft : _localNotes[existingIndex];
+    final verified = NotePasswordSecurity.verifyPassword(
+      password: currentPassword,
+      salt: source.passwordSalt,
+      expectedHash: source.passwordHash,
+    );
+    if (!verified) {
+      return (note: null, error: 'Current note password is incorrect.');
+    }
+
+    try {
+      final validated = NotePasswordSecurity.validateNewPassword(
+        password: newPassword,
+        confirmPassword: confirmNewPassword,
+      );
+      final newSalt = NotePasswordSecurity.generateSalt();
+      final newHash = NotePasswordSecurity.hashPassword(
+        password: validated,
+        salt: newSalt,
+      );
+      final updated = source.copyWith(
+        passwordSalt: newSalt,
+        passwordHash: newHash,
+        updatedAt: DateTime.now(),
+        syncStatus: NoteSyncStatus.pending,
+      );
+      setState(() {
+        _localUnlockedNoteIds.add(updated.id);
+        if (existingIndex == -1) {
+          _localNotes.add(updated);
+        } else {
+          _localNotes[existingIndex] = updated;
+        }
+        if (_activeEditorNote?.id == updated.id) {
+          _activeEditorNote = updated;
+        }
+      });
+      await _persistLocalNotes();
+      return (note: updated, error: null);
+    } on NoteFailure catch (error) {
+      return (note: null, error: error.message);
+    }
+  }
+
+  Future<({Note? note, String? error})> _handleDisableNotePassword(
+    Note draft,
+    String currentPassword,
+  ) async {
+    if (widget.onDisableNotePassword != null) {
+      final res = await widget.onDisableNotePassword!(
+        draft.id,
+        currentPassword,
+      );
+      if (res.note != null && mounted) {
+        setState(() {
+          _localUnlockedNoteIds.remove(draft.id);
+          if (_activeEditorNote?.id == draft.id) {
+            _activeEditorNote = res.note;
+          }
+        });
+      }
+      return res;
+    }
+
+    final existingIndex = _localNotes.indexWhere((item) => item.id == draft.id);
+    final source = existingIndex == -1 ? draft : _localNotes[existingIndex];
+    final verified = NotePasswordSecurity.verifyPassword(
+      password: currentPassword,
+      salt: source.passwordSalt,
+      expectedHash: source.passwordHash,
+    );
+    if (!verified) {
+      return (note: null, error: 'Current note password is incorrect.');
+    }
+
+    final updated = source.copyWith(
+      clearPasswordProtection: true,
+      updatedAt: DateTime.now(),
+      syncStatus: NoteSyncStatus.pending,
+    );
+    setState(() {
+      _localUnlockedNoteIds.remove(updated.id);
+      if (existingIndex != -1) {
+        _localNotes[existingIndex] = updated;
+      }
+      if (_activeEditorNote?.id == updated.id) {
+        _activeEditorNote = updated;
+      }
+    });
+    await _persistLocalNotes();
+    return (note: updated, error: null);
+  }
+
+  void _lockNoteSession(String noteId) {
+    widget.onLockNoteSession?.call(noteId);
+    setState(() {
+      _localUnlockedNoteIds.remove(noteId);
+      if (_activeEditorNote?.id == noteId) {
+        _activeEditorNote = null;
+        _isCreatingNew = false;
+      }
+    });
   }
 
   Future<void> _togglePin(Note note) async {
@@ -335,7 +599,12 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
-  void _openEditor({Note? note, required bool isWide}) {
+  Future<void> _openEditor({Note? note, required bool isWide}) async {
+    if (note != null && note.isPasswordProtected && !_isNoteUnlocked(note)) {
+      final unlocked = await _ensureNoteUnlocked(note);
+      if (!unlocked || !mounted) return;
+    }
+
     if (isWide) {
       setState(() {
         _editorSessionCounter++;
@@ -347,7 +616,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
       return;
     }
 
-    showModalBottomSheet<void>(
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -364,6 +633,12 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               debounceDuration: widget.editorDebounceDuration,
               onSave: _saveNote,
               onDelete: (target) => _deleteNoteWithoutConfirm(target.id),
+              onEnablePassword: _handleEnableNotePassword,
+              onChangePassword: _handleChangeNotePassword,
+              onDisablePassword: _handleDisableNotePassword,
+              onLockSession: note == null
+                  ? null
+                  : () => _lockNoteSession(note.id),
               onClose: () => Navigator.of(sheetContext).pop(),
             ),
           ),
@@ -427,6 +702,12 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                             onSave: _saveNote,
                             onDelete: (target) =>
                                 _deleteNoteWithoutConfirm(target.id),
+                            onEnablePassword: _handleEnableNotePassword,
+                            onChangePassword: _handleChangeNotePassword,
+                            onDisablePassword: _handleDisableNotePassword,
+                            onLockSession: _activeEditorNote == null
+                                ? null
+                                : () => _lockNoteSession(_activeEditorNote!.id),
                             onClose: () => setState(() {
                               _activeEditorNote = null;
                               _isCreatingNew = false;
@@ -1208,6 +1489,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             final note = notes[index];
             return _NoteCard(
               note: note,
+              isUnlocked: _isNoteUnlocked(note),
               onTap: () => _openEditor(note: note, isWide: isWide),
               onTogglePin: () => _togglePin(note),
               onDelete: () => _confirmAndDelete(note),
@@ -1224,6 +1506,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         for (final note in notes) ...[
           _NoteListTile(
             note: note,
+            isUnlocked: _isNoteUnlocked(note),
             onTap: () => _openEditor(note: note, isWide: isWide),
             onTogglePin: () => _togglePin(note),
             onDelete: () => _confirmAndDelete(note),
@@ -1599,12 +1882,14 @@ class _LabelFilterChip extends StatelessWidget {
 class _NoteCard extends StatelessWidget {
   const _NoteCard({
     required this.note,
+    required this.isUnlocked,
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
   });
 
   final Note note;
+  final bool isUnlocked;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
@@ -1616,6 +1901,7 @@ class _NoteCard extends StatelessWidget {
     final cardFill = tokens.noteCardFill(note.colorIndex);
     const inkColor = AppColors.charcoal;
     final subInkColor = AppColors.charcoal.withValues(alpha: 0.68);
+    final isLockedContent = note.isPasswordProtected && !isUnlocked;
 
     return Material(
       color: cardFill,
@@ -1648,6 +1934,23 @@ class _NoteCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (note.isPasswordProtected)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Tooltip(
+                        message: isLockedContent
+                            ? 'Password-protected (Locked)'
+                            : 'Password-protected (Unlocked)',
+                        child: Icon(
+                          isLockedContent
+                              ? Icons.lock_rounded
+                              : Icons.lock_open_rounded,
+                          key: Key('note-lock-indicator-${note.id}'),
+                          size: 16,
+                          color: inkColor,
+                        ),
+                      ),
+                    ),
                   if (note.status != NoteStatus.normal)
                     Padding(
                       padding: const EdgeInsets.only(right: 6),
@@ -1781,15 +2084,40 @@ class _NoteCard extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.sm + 2),
               Expanded(
-                child: Text(
-                  note.content,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.bodySmall?.copyWith(
-                    color: subInkColor,
-                    height: 1.55,
-                  ),
-                ),
+                child: isLockedContent
+                    ? Row(
+                        key: Key('note-locked-placeholder-${note.id}'),
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.lock_outline_rounded,
+                            size: 15,
+                            color: subInkColor,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Protected note — enter password to view',
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.bodySmall?.copyWith(
+                                color: subInkColor,
+                                fontStyle: FontStyle.italic,
+                                height: 1.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : Text(
+                        note.content,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.bodySmall?.copyWith(
+                          color: subInkColor,
+                          height: 1.55,
+                        ),
+                      ),
               ),
               const SizedBox(height: AppSpacing.sm),
               Row(
@@ -1829,12 +2157,14 @@ class _NoteCard extends StatelessWidget {
 class _NoteListTile extends StatelessWidget {
   const _NoteListTile({
     required this.note,
+    required this.isUnlocked,
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
   });
 
   final Note note;
+  final bool isUnlocked;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
@@ -1846,6 +2176,7 @@ class _NoteListTile extends StatelessWidget {
     final cardFill = tokens.noteCardFill(note.colorIndex);
     const inkColor = AppColors.charcoal;
     final subInkColor = AppColors.charcoal.withValues(alpha: 0.68);
+    final isLockedContent = note.isPasswordProtected && !isUnlocked;
 
     return Material(
       color: cardFill,
@@ -1872,8 +2203,10 @@ class _NoteListTile extends StatelessWidget {
                   color: inkColor,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(
-                  Icons.edit_outlined,
+                child: Icon(
+                  isLockedContent
+                      ? Icons.lock_outline_rounded
+                      : Icons.edit_outlined,
                   color: Colors.white,
                   size: 15,
                 ),
@@ -1898,6 +2231,17 @@ class _NoteListTile extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         NoteSyncStatusIndicator(status: note.syncStatus),
+                        if (note.isPasswordProtected) ...[
+                          const SizedBox(width: 6),
+                          Icon(
+                            isLockedContent
+                                ? Icons.lock_rounded
+                                : Icons.lock_open_rounded,
+                            key: Key('note-tile-lock-indicator-${note.id}'),
+                            color: inkColor,
+                            size: 15,
+                          ),
+                        ],
                         if (note.status != NoteStatus.normal) ...[
                           const SizedBox(width: 6),
                           Container(
@@ -1968,10 +2312,17 @@ class _NoteListTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      note.content,
+                      isLockedContent
+                          ? 'Protected note — enter password to view'
+                          : note.content,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: text.bodySmall?.copyWith(color: subInkColor),
+                      style: text.bodySmall?.copyWith(
+                        color: subInkColor,
+                        fontStyle: isLockedContent
+                            ? FontStyle.italic
+                            : FontStyle.normal,
+                      ),
                     ),
                     if (note.labels.isNotEmpty) ...[
                       const SizedBox(height: 8),

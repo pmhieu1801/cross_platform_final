@@ -72,6 +72,51 @@ class HomeScreen extends ConsumerWidget {
         final ok = await noteActions.deleteLabel(name);
         return ok ? null : ref.read(noteActionsProvider).error;
       },
+      onEnableNotePassword: (noteId, password, confirmPassword) async {
+        final updated = await noteActions.enableNotePassword(
+          noteId,
+          password: password,
+          confirmPassword: confirmPassword,
+        );
+        return (
+          note: updated,
+          error: updated == null ? ref.read(noteActionsProvider).error : null,
+        );
+      },
+      onVerifyNotePassword: (noteId, password) async {
+        final ok = await noteActions.verifyNotePassword(noteId, password);
+        return ok
+            ? null
+            : (ref.read(noteActionsProvider).error ??
+                  'Incorrect note password.');
+      },
+      onChangeNotePassword:
+          (noteId, currentPassword, newPassword, confirmNewPassword) async {
+            final updated = await noteActions.changeNotePassword(
+              noteId,
+              currentPassword: currentPassword,
+              newPassword: newPassword,
+              confirmNewPassword: confirmNewPassword,
+            );
+            return (
+              note: updated,
+              error: updated == null
+                  ? ref.read(noteActionsProvider).error
+                  : null,
+            );
+          },
+      onDisableNotePassword: (noteId, currentPassword) async {
+        final updated = await noteActions.disableNotePassword(
+          noteId,
+          currentPassword: currentPassword,
+        );
+        return (
+          note: updated,
+          error: updated == null ? ref.read(noteActionsProvider).error : null,
+        );
+      },
+      isNoteUnlocked: noteActions.isNoteUnlocked,
+      onLockNoteSession: noteActions.lockNoteSession,
     );
   }
 }

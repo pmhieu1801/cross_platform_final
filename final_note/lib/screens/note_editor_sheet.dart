@@ -59,6 +59,10 @@ class NoteEditorPanel extends StatefulWidget {
     this.onDelete,
     this.onClose,
     this.attachmentPicker,
+    this.onEnablePassword,
+    this.onChangePassword,
+    this.onDisablePassword,
+    this.onLockSession,
     this.debounceDuration = const Duration(milliseconds: 400),
     this.embedded = false,
   });
@@ -83,6 +87,31 @@ class NoteEditorPanel extends StatefulWidget {
   /// When omitted, opens the interactive NoteFlow attachment selector dialog.
   final Future<AttachmentPickOutcome> Function(NoteAttachmentKind kind)?
   attachmentPicker;
+
+  /// Optional callbacks for enabling, changing, or disabling note password
+  /// protection (R23, R24).
+  final Future<({Note? note, String? error})> Function(
+    Note draft,
+    String password,
+    String confirmPassword,
+  )?
+  onEnablePassword;
+
+  final Future<({Note? note, String? error})> Function(
+    Note draft,
+    String currentPassword,
+    String newPassword,
+    String confirmNewPassword,
+  )?
+  onChangePassword;
+
+  final Future<({Note? note, String? error})> Function(
+    Note draft,
+    String currentPassword,
+  )?
+  onDisablePassword;
+
+  final VoidCallback? onLockSession;
 
   /// Debounce window before auto-saving after the user stops typing.
   final Duration debounceDuration;
@@ -109,6 +138,14 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   late List<String> _labels;
   late List<NoteAttachment> _attachments;
   late List<String> _catalogLabels;
+  String? _passwordHash;
+  String? _passwordSalt;
+
+  bool get _isPasswordProtected =>
+      _passwordHash != null &&
+      _passwordHash!.isNotEmpty &&
+      _passwordSalt != null &&
+      _passwordSalt!.isNotEmpty;
 
   Timer? _debounceTimer;
   bool _dirty = false;
@@ -134,6 +171,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     _attachments = List<NoteAttachment>.of(
       initial?.attachments ?? const <NoteAttachment>[],
     );
+    _passwordHash = initial?.passwordHash;
+    _passwordSalt = initial?.passwordSalt;
     _catalogLabels = {...widget.availableLabels, ..._labels}.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     _hasEverSaved = initial != null;
@@ -196,6 +235,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       status: _status,
       syncStatus: _syncStatus,
       attachments: List<NoteAttachment>.unmodifiable(_attachments),
+      passwordHash: _passwordHash,
+      passwordSalt: _passwordSalt,
     );
   }
 
@@ -606,6 +647,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
       }
       _hasEverSaved = true;
       _lastSavedSnapshot = saved;
+      _passwordHash = saved.passwordHash ?? _passwordHash;
+      _passwordSalt = saved.passwordSalt ?? _passwordSalt;
       _dirty = _differsFromLastSaved();
       if (mounted) {
         setState(() {
@@ -679,6 +722,89 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     }
   }
 
+  Future<void> _handlePasswordProtectionButton() async {
+    // Ensure the note exists in storage before enabling/changing its password.
+    if (!_hasEverSaved || _dirty) {
+      final savedOk = await _persistNow(isAutosave: false);
+      if (!savedOk || !mounted) return;
+    }
+    final currentDraft = _lastSavedSnapshot ?? _buildDraft();
+
+    if (!_isPasswordProtected) {
+      if (widget.onEnablePassword == null) return;
+      await showEnableNotePasswordDialog(
+        context,
+        onEnable: (password, confirmPassword) async {
+          final res = await widget.onEnablePassword!(
+            currentDraft,
+            password,
+            confirmPassword,
+          );
+          if (res.note != null && mounted) {
+            setState(() {
+              _lastSavedSnapshot = res.note;
+              _passwordHash = res.note!.passwordHash;
+              _passwordSalt = res.note!.passwordSalt;
+              _syncStatus = res.note!.syncStatus;
+            });
+          }
+          return res.error;
+        },
+      );
+      return;
+    }
+
+    if (widget.onChangePassword == null || widget.onDisablePassword == null) {
+      return;
+    }
+    await showManageNotePasswordDialog(
+      context,
+      onChangePassword:
+          (currentPassword, newPassword, confirmNewPassword) async {
+            final res = await widget.onChangePassword!(
+              currentDraft,
+              currentPassword,
+              newPassword,
+              confirmNewPassword,
+            );
+            if (res.note != null && mounted) {
+              setState(() {
+                _lastSavedSnapshot = res.note;
+                _passwordHash = res.note!.passwordHash;
+                _passwordSalt = res.note!.passwordSalt;
+                _syncStatus = res.note!.syncStatus;
+              });
+            }
+            return res.error;
+          },
+      onDisablePassword: (currentPassword) async {
+        final res = await widget.onDisablePassword!(
+          currentDraft,
+          currentPassword,
+        );
+        if (res.note != null && mounted) {
+          setState(() {
+            _lastSavedSnapshot = res.note;
+            _passwordHash = null;
+            _passwordSalt = null;
+            _syncStatus = res.note!.syncStatus;
+          });
+        }
+        return res.error;
+      },
+      onLockNow: widget.onLockSession == null
+          ? null
+          : () {
+              widget.onLockSession!();
+              if (widget.onClose != null) {
+                widget.onClose!();
+              } else {
+                Navigator.of(context).maybePop();
+              }
+            },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
@@ -743,6 +869,20 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                   color: _isPinned ? inkColor : subInkColor,
                 ),
               ),
+              if (widget.onEnablePassword != null)
+                IconButton(
+                  key: const Key('note-editor-lock-button'),
+                  tooltip: _isPasswordProtected
+                      ? 'Password protection settings'
+                      : 'Protect note with password',
+                  onPressed: _handlePasswordProtectionButton,
+                  icon: Icon(
+                    _isPasswordProtected
+                        ? Icons.lock_rounded
+                        : Icons.lock_open_rounded,
+                    color: _isPasswordProtected ? inkColor : subInkColor,
+                  ),
+                ),
               if ((_hasEverSaved || widget.initialNote != null) &&
                   widget.onDelete != null)
                 IconButton(
