@@ -1081,57 +1081,82 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                       ),
                     ),
                   ),
-                  if (showSideEditor)
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        minWidth: AppSizes.editorPanelMinWidth,
-                        maxWidth: 440,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          0,
-                          AppSpacing.lg,
-                          AppSpacing.lg,
-                          AppSpacing.lg,
-                        ),
-                        child: SingleChildScrollView(
-                          child: NoteEditorPanel(
-                            key: ValueKey(_editorSessionKey),
-                            initialNote: _activeEditorNote,
-                            noteFontScale: widget.noteFontScale,
-                            availableLabels: _labels,
-                            embedded: true,
-                            debounceDuration: widget.editorDebounceDuration,
-                            readOnly: _isReadOnlyForViewer(_activeEditorNote),
-                            sharedByEmail: _activeEditorNote == null
-                                ? null
-                                : _viewerShareEntry(_activeEditorNote!)
-                                      ?.sharedByEmail,
-                            sharedAt: _activeEditorNote == null
-                                ? null
-                                : _viewerShareEntry(_activeEditorNote!)
-                                      ?.sharedAt,
-                            onSave: _saveNote,
-                            onDelete: (target) =>
-                                _deleteNoteWithoutConfirm(target.id),
-                            onEnablePassword: _handleEnableNotePassword,
-                            onChangePassword: _handleChangeNotePassword,
-                            onDisablePassword: _handleDisableNotePassword,
-                            onLockSession: _activeEditorNote == null
-                                ? null
-                                : () => _lockNoteSession(_activeEditorNote!.id),
-                            onShareNote: _handleShareNote,
-                            onUpdateSharePermission:
-                                _handleUpdateSharePermission,
-                            onRevokeShare: _handleRevokeShare,
-                            onClose: () => setState(() {
-                              _activeEditorNote = null;
-                              _isCreatingNew = false;
-                            }),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    reverseDuration: const Duration(milliseconds: 180),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) {
+                      final slide = Tween<Offset>(
+                        begin: const Offset(0.06, 0),
+                        end: Offset.zero,
+                      ).animate(animation);
+                      return FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(position: slide, child: child),
+                      );
+                    },
+                    child: showSideEditor
+                        ? ConstrainedBox(
+                            key: ValueKey('side-editor-$_editorSessionKey'),
+                            constraints: const BoxConstraints(
+                              minWidth: AppSizes.editorPanelMinWidth,
+                              maxWidth: 440,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                0,
+                                AppSpacing.lg,
+                                AppSpacing.lg,
+                                AppSpacing.lg,
+                              ),
+                              child: SingleChildScrollView(
+                                child: NoteEditorPanel(
+                                  key: ValueKey(_editorSessionKey),
+                                  initialNote: _activeEditorNote,
+                                  noteFontScale: widget.noteFontScale,
+                                  availableLabels: _labels,
+                                  embedded: true,
+                                  debounceDuration:
+                                      widget.editorDebounceDuration,
+                                  readOnly: _isReadOnlyForViewer(
+                                    _activeEditorNote,
+                                  ),
+                                  sharedByEmail: _activeEditorNote == null
+                                      ? null
+                                      : _viewerShareEntry(_activeEditorNote!)
+                                            ?.sharedByEmail,
+                                  sharedAt: _activeEditorNote == null
+                                      ? null
+                                      : _viewerShareEntry(_activeEditorNote!)
+                                            ?.sharedAt,
+                                  onSave: _saveNote,
+                                  onDelete: (target) =>
+                                      _deleteNoteWithoutConfirm(target.id),
+                                  onEnablePassword: _handleEnableNotePassword,
+                                  onChangePassword: _handleChangeNotePassword,
+                                  onDisablePassword: _handleDisableNotePassword,
+                                  onLockSession: _activeEditorNote == null
+                                      ? null
+                                      : () => _lockNoteSession(
+                                          _activeEditorNote!.id,
+                                        ),
+                                  onShareNote: _handleShareNote,
+                                  onUpdateSharePermission:
+                                      _handleUpdateSharePermission,
+                                  onRevokeShare: _handleRevokeShare,
+                                  onClose: () => setState(() {
+                                    _activeEditorNote = null;
+                                    _isCreatingNew = false;
+                                  }),
+                                ),
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(
+                            key: ValueKey('no-side-editor'),
                           ),
-                        ),
-                      ),
-                    ),
+                  ),
                 ],
               ),
             ),
@@ -1563,19 +1588,30 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               const SizedBox(height: AppSpacing.md),
               _buildLabelFilters(context),
               const SizedBox(height: AppSpacing.lg),
-              if (widget.isLoading)
-                const LoadingStateView(message: 'Loading your notes...')
-              else if (widget.errorMessage != null)
-                ErrorStateView(
-                  message: widget.errorMessage!,
-                  onRetry: widget.onRetry,
-                )
-              else if (notes.isEmpty)
-                _buildEmptyState(isWide: isWide)
-              else if (_layout == _NotesLayout.grid)
-                _buildGrid(notes, isCompact: isCompact, isWide: isWide)
-              else
-                _buildList(notes, isWide: isWide),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) =>
+                    FadeTransition(opacity: animation, child: child),
+                child: KeyedSubtree(
+                  key: ValueKey(
+                    'notes-view-${_section.name}-${_selectedLabel ?? 'all'}-${_layout.name}-${widget.isLoading}-${widget.errorMessage != null}-${notes.isEmpty}',
+                  ),
+                  child: widget.isLoading
+                      ? const LoadingStateView(message: 'Loading your notes...')
+                      : widget.errorMessage != null
+                      ? ErrorStateView(
+                          message: widget.errorMessage!,
+                          onRetry: widget.onRetry,
+                        )
+                      : notes.isEmpty
+                      ? _buildEmptyState(isWide: isWide)
+                      : _layout == _NotesLayout.grid
+                      ? _buildGrid(notes, isCompact: isCompact, isWide: isWide)
+                      : _buildList(notes, isWide: isWide),
+                ),
+              ),
             ],
           ),
         ),
