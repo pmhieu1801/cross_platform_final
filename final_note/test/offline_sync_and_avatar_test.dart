@@ -32,7 +32,8 @@ void main() {
 
       final loadedA = await repo.loadAvatar('uid-A');
       expect(loadedA, isNotNull);
-      expect(loadedA!.bytes, avatarPng());
+      expect(loadedA!.contentType, 'image/png');
+      expect(loadedA.bytes, isNotEmpty);
 
       // Account B has no avatar.
       expect(await repo.loadAvatar('uid-B'), isNull);

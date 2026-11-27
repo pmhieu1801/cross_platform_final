@@ -86,7 +86,7 @@ class LocalAvatarRepository implements AvatarRepository {
     if (expectedUid.trim().isEmpty) {
       throw const AvatarValidationFailure('Phiên đăng nhập không hợp lệ.');
     }
-    final validated = await validator.validate(
+    final validated = await validator.normalizeForAvatar(
       rawBytes,
       declaredMimeType: declaredMimeType,
     );
