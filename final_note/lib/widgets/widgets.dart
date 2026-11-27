@@ -7,6 +7,7 @@ export 'brand_badge.dart';
 export 'glass_panel.dart';
 export 'gradient_button.dart';
 export 'label_management_dialog.dart';
+export 'note_ai_qa_dialog.dart';
 export 'note_password_dialogs.dart';
 export 'note_share_dialog.dart';
 export 'note_sync_status_indicator.dart';

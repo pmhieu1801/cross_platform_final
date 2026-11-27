@@ -806,6 +806,20 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
+  void _openAiQaDialog({required bool isWide}) {
+    final combined = <Note>[..._allNotes, ..._sharedWithMeNotes];
+    showNoteAiQaDialog(
+      context,
+      candidateNotes: combined,
+      viewerUid: widget.user?.uid,
+      viewerEmail: widget.user?.email,
+      isNoteUnlocked: _isNoteUnlocked,
+      onOpenSourceNote: (sourceNote) {
+        _openEditor(note: sourceNote, isWide: isWide);
+      },
+    );
+  }
+
   Future<void> _openEditor({Note? note, required bool isWide}) async {
     if (note != null && note.isPasswordProtected && !_isNoteUnlocked(note)) {
       final unlocked = await _ensureNoteUnlocked(note);
@@ -1310,7 +1324,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
-              _buildSearchAndLayout(context),
+              _buildSearchAndLayout(context, isWide: isWide),
               const SizedBox(height: AppSpacing.xl),
               // MINO-style "Recent Folders" pastel cards on desktop layout
               if (isWide && _labels.isNotEmpty) ...[
@@ -1602,7 +1616,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
-  Widget _buildSearchAndLayout(BuildContext context) {
+  Widget _buildSearchAndLayout(BuildContext context, {required bool isWide}) {
     return Row(
       children: [
         Expanded(
@@ -1625,6 +1639,21 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                     ),
             ),
           ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        FilledButton.icon(
+          key: const Key('open-ai-qa-button'),
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.charcoal,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm + 2,
+            ),
+          ),
+          onPressed: () => _openAiQaDialog(isWide: isWide),
+          icon: const Icon(Icons.auto_awesome_rounded, size: 17),
+          label: const Text('Ask AI'),
         ),
         const SizedBox(width: AppSpacing.sm),
         _LayoutToggle(

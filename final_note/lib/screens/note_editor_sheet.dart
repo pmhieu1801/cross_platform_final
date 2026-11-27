@@ -3,8 +3,10 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../features/notes/application/note_ai_service.dart';
 import '../features/notes/application/note_attachment_service.dart';
 import '../features/notes/application/note_providers.dart';
+import '../features/notes/domain/note_repository.dart';
 import '../models/note.dart';
 import '../theme/theme.dart';
 import '../widgets/widgets.dart';
@@ -187,6 +189,10 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
   String? _errorMessage;
   String? _attachmentError;
   Note? _lastSavedSnapshot;
+  NoteAiSummaryResult? _aiSummary;
+  String? _aiSummaryError;
+  bool _generatingSummary = false;
+  int _summaryVariationIndex = 0;
 
   @override
   void initState() {
@@ -933,6 +939,40 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
     );
   }
 
+  Future<void> _generateAiSummary({bool regenerate = false}) async {
+    if (_generatingSummary) return;
+    final nextVariation = regenerate ? _summaryVariationIndex + 1 : 0;
+    setState(() {
+      _generatingSummary = true;
+      _aiSummaryError = null;
+    });
+    try {
+      final result = await const NoteAiService().summarizeNote(
+        _buildDraft(),
+        isUnlocked: true,
+        variationIndex: nextVariation,
+      );
+      if (!mounted) return;
+      setState(() {
+        _generatingSummary = false;
+        _summaryVariationIndex = nextVariation;
+        _aiSummary = result;
+      });
+    } on NoteFailure catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _generatingSummary = false;
+        _aiSummaryError = error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _generatingSummary = false;
+        _aiSummaryError = 'Could not generate AI summary.';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
@@ -980,6 +1020,17 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                       showLabel: true,
                     ),
                   ],
+                ),
+              ),
+              IconButton(
+                key: const Key('note-editor-ai-summary-button'),
+                tooltip: 'AI Summary',
+                onPressed: _generatingSummary
+                    ? null
+                    : () => _generateAiSummary(regenerate: false),
+                icon: Icon(
+                  Icons.auto_awesome_rounded,
+                  color: _aiSummary != null ? inkColor : subInkColor,
                 ),
               ),
               if (!widget.readOnly)
@@ -1131,6 +1182,10 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               ),
             ),
           ),
+          if (_aiSummary != null || _aiSummaryError != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            _buildAiSummaryCard(context),
+          ],
           const SizedBox(height: AppSpacing.md),
           _buildStatusPicker(context),
           const SizedBox(height: AppSpacing.md),
@@ -1163,6 +1218,82 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
               ],
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiSummaryCard(BuildContext context) {
+    final text = context.text;
+    final tokens = context.tokens;
+    const inkColor = AppColors.charcoal;
+    final subInkColor = AppColors.charcoal.withValues(alpha: 0.68);
+
+    return Container(
+      key: const Key('note-ai-summary-card'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.80),
+        borderRadius: AppRadius.mdAll,
+        border: Border.all(color: inkColor.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome_rounded, size: 16, color: inkColor),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(
+                child: Text(
+                  _aiSummary != null
+                      ? 'AI Summary (${_aiSummary!.styleLabel})'
+                      : 'AI Summary',
+                  style: text.labelMedium?.copyWith(
+                    color: inkColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (_aiSummary != null)
+                TextButton.icon(
+                  key: const Key('note-ai-summary-regenerate'),
+                  onPressed: _generatingSummary
+                      ? null
+                      : () => _generateAiSummary(regenerate: true),
+                  style: TextButton.styleFrom(
+                    foregroundColor: inkColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 32),
+                  ),
+                  icon: const Icon(Icons.refresh_rounded, size: 15),
+                  label: const Text('Regenerate'),
+                ),
+              IconButton(
+                key: const Key('note-ai-summary-dismiss'),
+                tooltip: 'Dismiss AI summary',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => setState(() {
+                  _aiSummary = null;
+                  _aiSummaryError = null;
+                }),
+                icon: Icon(Icons.close_rounded, size: 16, color: subInkColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          if (_aiSummaryError != null)
+            Text(
+              _aiSummaryError!,
+              key: const Key('note-ai-summary-error'),
+              style: text.bodySmall?.copyWith(color: tokens.danger),
+            )
+          else if (_aiSummary != null)
+            SelectableText(
+              _aiSummary!.summary,
+              key: const Key('note-ai-summary-text'),
+              style: text.bodySmall?.copyWith(color: inkColor, height: 1.5),
+            ),
         ],
       ),
     );
