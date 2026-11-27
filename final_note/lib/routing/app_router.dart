@@ -22,61 +22,81 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       state.uri.path,
     ),
     routes: [
-      GoRoute(path: '/', builder: (_, _) => const SessionScreen()),
+      GoRoute(
+        path: '/',
+        pageBuilder: (_, state) => _smoothPage(state, const SessionScreen()),
+      ),
       GoRoute(
         path: AppRoutes.session,
-        builder: (_, _) => const SessionScreen(),
+        pageBuilder: (_, state) => _smoothPage(state, const SessionScreen()),
       ),
       GoRoute(
         path: AppRoutes.login,
-        builder: (_, _) => const AuthForm(register: false),
+        pageBuilder: (_, state) =>
+            _smoothPage(state, const AuthForm(register: false)),
       ),
       GoRoute(
         path: AppRoutes.register,
-        builder: (_, _) => const AuthForm(register: true),
+        pageBuilder: (_, state) =>
+            _smoothPage(state, const AuthForm(register: true)),
       ),
       GoRoute(
         path: AppRoutes.forgotPassword,
-        builder: (_, _) => Consumer(
-          builder: (context, ref, child) =>
-              sessionPhase(ref.watch(authSessionProvider)) ==
-                  SessionPhase.signedOut
-              ? const ForgotPasswordScreen()
-              : const SessionScreen(),
+        pageBuilder: (_, state) => _smoothPage(
+          state,
+          Consumer(
+            builder: (context, ref, child) =>
+                sessionPhase(ref.watch(authSessionProvider)) ==
+                    SessionPhase.signedOut
+                ? const ForgotPasswordScreen()
+                : const SessionScreen(),
+          ),
         ),
       ),
-      GoRoute(path: AppRoutes.home, builder: (_, _) => const HomeScreen()),
+      GoRoute(
+        path: AppRoutes.home,
+        pageBuilder: (_, state) => _smoothPage(state, const HomeScreen()),
+      ),
       GoRoute(
         path: AppRoutes.preferences,
-        builder: (_, _) => Consumer(
-          builder: (context, ref, child) {
-            final uid = ref.watch(authenticatedUidProvider);
-            return uid == null
-                ? const SessionScreen()
-                : PreferencesScreen(key: ValueKey(uid), uid: uid);
-          },
+        pageBuilder: (_, state) => _smoothPage(
+          state,
+          Consumer(
+            builder: (context, ref, child) {
+              final uid = ref.watch(authenticatedUidProvider);
+              return uid == null
+                  ? const SessionScreen()
+                  : PreferencesScreen(key: ValueKey(uid), uid: uid);
+            },
+          ),
         ),
       ),
       GoRoute(
         path: AppRoutes.profile,
-        builder: (_, _) => Consumer(
-          builder: (context, ref, child) {
-            final uid = ref.watch(authenticatedUidProvider);
-            return uid == null
-                ? const SessionScreen()
-                : ProfileScreen(key: ValueKey(uid), uid: uid);
-          },
+        pageBuilder: (_, state) => _smoothPage(
+          state,
+          Consumer(
+            builder: (context, ref, child) {
+              final uid = ref.watch(authenticatedUidProvider);
+              return uid == null
+                  ? const SessionScreen()
+                  : ProfileScreen(key: ValueKey(uid), uid: uid);
+            },
+          ),
         ),
       ),
       GoRoute(
         path: AppRoutes.changePassword,
-        builder: (_, _) => Consumer(
-          builder: (context, ref, child) {
-            final uid = ref.watch(authenticatedUidProvider);
-            return uid == null
-                ? const SessionScreen()
-                : ChangePasswordScreen(key: ValueKey(uid), uid: uid);
-          },
+        pageBuilder: (_, state) => _smoothPage(
+          state,
+          Consumer(
+            builder: (context, ref, child) {
+              final uid = ref.watch(authenticatedUidProvider);
+              return uid == null
+                  ? const SessionScreen()
+                  : ChangePasswordScreen(key: ValueKey(uid), uid: uid);
+            },
+          ),
         ),
       ),
     ],
@@ -89,6 +109,30 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   });
   return router;
 });
+
+CustomTransitionPage<void> _smoothPage(GoRouterState state, Widget child) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 220),
+    reverseTransitionDuration: const Duration(milliseconds: 180),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      final slide = Tween<Offset>(
+        begin: const Offset(0.015, 0),
+        end: Offset.zero,
+      ).animate(curved);
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(position: slide, child: child),
+      );
+    },
+  );
+}
 
 class _RouterRefresh extends ChangeNotifier {
   void notify() => notifyListeners();

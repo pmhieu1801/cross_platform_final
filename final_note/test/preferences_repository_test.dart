@@ -10,12 +10,12 @@ import 'support/memory_preferences_store.dart';
 
 void main() {
   const custom = UserPreferences(
-    themeMode: PreferenceThemeMode.light,
+    themeMode: PreferenceThemeMode.dark,
     noteFontScale: 1.3,
     notesViewMode: NotesViewMode.list,
   );
 
-  test('default is dark, 100 percent, grid; fresh repository reloads persisted UID settings', () async {
+  test('default is light, 100 percent, grid; fresh repository reloads persisted UID settings', () async {
     SharedPreferences.setMockInitialValues({});
     final repository = LocalPreferencesRepository();
     expect((await repository.load('uid-A')).value, UserPreferences.defaults);
