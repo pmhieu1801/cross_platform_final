@@ -25,7 +25,7 @@ void main() {
   late ProviderContainer container;
   late InMemoryNoteRepository notes;
   const custom = UserPreferences(
-    themeMode: PreferenceThemeMode.light,
+    themeMode: PreferenceThemeMode.dark,
     noteFontScale: 1.3,
     notesViewMode: NotesViewMode.list,
   );
@@ -108,7 +108,7 @@ void main() {
   }
 
   Future<void> editCustom(WidgetTester tester) async {
-    await choose(tester, 'preferences-theme', 'Light');
+    await choose(tester, 'preferences-theme', 'Dark');
     await choose(tester, 'preferences-view', 'List');
     tester.widget<Slider>(find.byKey(const Key('preferences-font'))).onChanged!(
       1.3,
@@ -120,7 +120,7 @@ void main() {
       tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode;
 
   testWidgets(
-    'settings route is private and defaults are grid dark and normal size',
+    'settings route is private and defaults are grid light and normal size',
     (tester) async {
       await boot(tester, signedIn: false);
       container.read(appRouterProvider).go(AppRoutes.preferences);
@@ -132,7 +132,7 @@ void main() {
       await revealNote(tester);
       expect(find.byKey(const Key('note-card-prefs-note')), findsOneWidget);
       await open(tester);
-      expect(appTheme(tester), ThemeMode.dark);
+      expect(appTheme(tester), ThemeMode.light);
       expect(
         tester.widget<Slider>(find.byKey(const Key('preferences-font'))).value,
         1,
@@ -147,7 +147,7 @@ void main() {
       await boot(tester);
       await open(tester);
       await editCustom(tester);
-      expect(appTheme(tester), ThemeMode.dark);
+      expect(appTheme(tester), ThemeMode.light);
       store.writeHolds[keyA] = Completer<void>();
       await tester.ensureVisible(saveButton);
       await tester.tap(saveButton);
@@ -165,7 +165,7 @@ void main() {
       );
       store.writeHolds[keyA]!.complete();
       await tester.pumpAndSettle();
-      expect(appTheme(tester), ThemeMode.light);
+      expect(appTheme(tester), ThemeMode.dark);
       expect(container.read(effectivePreferencesProvider), custom);
       expect(find.text('Đã lưu cài đặt trên thiết bị này.'), findsOneWidget);
       await tester.tap(find.byKey(const Key('preferences-back')));
@@ -200,7 +200,7 @@ void main() {
       await tester.tap(saveButton);
       await tester.pumpAndSettle();
       expect(find.text('Chưa lưu được cài đặt. Hãy thử lại.'), findsOneWidget);
-      expect(appTheme(tester), ThemeMode.dark);
+      expect(appTheme(tester), ThemeMode.light);
       expect(
         tester.widget<Slider>(find.byKey(const Key('preferences-font'))).value,
         1.3,
@@ -247,9 +247,9 @@ void main() {
     (tester) async {
       store.values[keyA] = jsonEncode(custom.toJson());
       await boot(tester);
-      expect(appTheme(tester), ThemeMode.light);
+      expect(appTheme(tester), ThemeMode.dark);
       await open(tester);
-      await choose(tester, 'preferences-theme', 'Dark');
+      await choose(tester, 'preferences-theme', 'Light');
       store.writeHolds[keyA] = Completer<void>();
       await tester.tap(saveButton);
       await tester.pump();
@@ -261,7 +261,7 @@ void main() {
         container.read(effectivePreferencesProvider),
         UserPreferences.defaults,
       );
-      expect(appTheme(tester), ThemeMode.dark);
+      expect(appTheme(tester), ThemeMode.light);
       store.writeHolds[keyA]!.complete();
       await tester.pump();
       store.readHolds[keyB]!.complete();
@@ -288,14 +288,14 @@ void main() {
     store.values[keyA] = jsonEncode(custom.toJson());
     store.readFailure = StateError('private storage detail');
     await boot(tester);
-    expect(appTheme(tester), ThemeMode.dark);
+    expect(appTheme(tester), ThemeMode.light);
     await open(tester);
     expect(find.text('Không thể tải cài đặt. Hãy thử lại.'), findsOneWidget);
     expect(find.textContaining('private storage detail'), findsNothing);
     store.readFailure = null;
     await tester.tap(find.byKey(const Key('preferences-retry')));
     await tester.pumpAndSettle();
-    expect(appTheme(tester), ThemeMode.light);
+    expect(appTheme(tester), ThemeMode.dark);
     expect(
       tester.widget<Slider>(find.byKey(const Key('preferences-font'))).value,
       1.3,
@@ -340,7 +340,7 @@ void main() {
       await tester.pump();
       auth.events.add(null);
       await tester.pumpAndSettle();
-      expect(appTheme(tester), ThemeMode.dark);
+      expect(appTheme(tester), ThemeMode.light);
       auth.events.add(userA);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));

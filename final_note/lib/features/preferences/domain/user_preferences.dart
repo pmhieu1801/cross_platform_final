@@ -4,7 +4,7 @@ enum NotesViewMode { grid, list }
 
 class UserPreferences {
   const UserPreferences({
-    this.themeMode = PreferenceThemeMode.dark,
+    this.themeMode = PreferenceThemeMode.light,
     this.noteFontScale = 1,
     this.notesViewMode = NotesViewMode.grid,
   });
