@@ -6,9 +6,9 @@ import 'app_tokens.dart';
 import 'app_typography.dart';
 import 'noteflow_tokens.dart';
 
-/// Builds the light and dark [ThemeData] for NoteFlow.
+/// Builds and caches the light and dark [ThemeData] for NoteFlow.
 abstract final class AppTheme {
-  static ThemeData get dark => _build(
+  static final ThemeData dark = _build(
     brightness: Brightness.dark,
     scheme: const ColorScheme(
       brightness: Brightness.dark,
@@ -50,7 +50,7 @@ abstract final class AppTheme {
     tokens: NoteFlowTokens.dark,
   );
 
-  static ThemeData get light => _build(
+  static final ThemeData light = _build(
     brightness: Brightness.light,
     scheme: const ColorScheme(
       brightness: Brightness.light,
@@ -129,7 +129,7 @@ abstract final class AppTheme {
       textTheme: textTheme,
       scaffoldBackgroundColor: background,
       canvasColor: background,
-      splashFactory: InkSparkle.splashFactory,
+      splashFactory: InkRipple.splashFactory,
       visualDensity: VisualDensity.standard,
       materialTapTargetSize: MaterialTapTargetSize.padded,
       extensions: [tokens],

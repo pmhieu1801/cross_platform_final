@@ -6,6 +6,7 @@ import '../../../routing/session_guard.dart';
 import '../../../screens/login_screen.dart';
 import '../../../screens/register_screen.dart';
 import '../application/auth_providers.dart';
+import '../application/change_password_controller.dart';
 
 /// Connects the shared Midnight Glow forms to Auth; widgets own only input/UI.
 class AuthForm extends ConsumerWidget {
@@ -19,6 +20,7 @@ class AuthForm extends ConsumerWidget {
     void navigate(String path) {
       if (ref.read(authActionsProvider).busy) return;
       actions.clearError();
+      ref.read(changePasswordProvider.notifier).clearCompleted();
       context.go(path);
     }
 
@@ -33,7 +35,15 @@ class AuthForm extends ConsumerWidget {
     return LoginScreen(
       isLoading: action.busy,
       error: action.error,
-      onSubmit: actions.signIn,
+      onSubmit: (email, password) {
+        ref.read(changePasswordProvider.notifier).clearCompleted();
+        return actions.signIn(email, password);
+      },
+      notice:
+          ref.watch(changePasswordProvider).phase ==
+              PasswordChangePhase.completed
+          ? 'Password changed. Sign in with your new password.'
+          : null,
       onCreateAccount: () => navigate(AppRoutes.register),
       onForgotPassword: () => navigate(AppRoutes.forgotPassword),
     );

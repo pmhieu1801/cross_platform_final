@@ -36,11 +36,15 @@ class NoteSyncStatusIndicator extends StatelessWidget {
             Icon(icon, size: 16, color: color),
             if (showLabel) ...[
               const SizedBox(width: AppSpacing.xs),
-              Text(
-                status.label,
-                style: text.labelSmall?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w700,
+              Flexible(
+                child: Text(
+                  status.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.labelSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],

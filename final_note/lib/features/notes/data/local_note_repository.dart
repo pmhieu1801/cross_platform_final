@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../models/note.dart';
+import '../application/note_password_security.dart';
 import '../domain/note_repository.dart';
 
 class NoteStoreSnapshot {
@@ -97,12 +98,23 @@ class LocalNoteRepository implements NoteRepository {
 
   final Map<String, List<Note>> _notesByUid = <String, List<Note>>{};
   final Map<String, Set<String>> _labelsByUid = <String, Set<String>>{};
+  final Map<String, Set<String>> _unlockedNotesByUid = <String, Set<String>>{};
+  final Map<String, String> _emailToUid = <String, String>{};
+  final Map<String, String> _uidToEmail = <String, String>{};
   final Map<String, Future<void>> _loadsByUid = <String, Future<void>>{};
   final Map<String, Future<void>> _writeTailsByUid = <String, Future<void>>{};
   final Map<String, StreamController<List<Note>>> _noteControllersByUid =
       <String, StreamController<List<Note>>>{};
+  final Map<String, StreamController<List<Note>>> _sharedNoteControllersByUid =
+      <String, StreamController<List<Note>>>{};
   final Map<String, StreamController<List<String>>> _labelControllersByUid =
       <String, StreamController<List<String>>>{};
+
+  /// Whether `shareNote` requires the recipient email to have been registered
+  /// via [registerAccountIdentity]. When `false` (default), any valid email
+  /// format except the owner's own email is accepted and linked automatically
+  /// when that account signs in.
+  bool requireRegisteredRecipients = false;
 
   List<Note> _bucketFor(String uid) {
     if (uid.trim().isEmpty) {
@@ -252,6 +264,30 @@ class LocalNoteRepository implements NoteRepository {
     if (controller != null && !controller.isClosed) {
       controller.add(List<Note>.unmodifiable(sortNotes(_bucketFor(uid))));
     }
+    _emitSharedNotesForAll();
+  }
+
+  List<Note> _sharedNotesFor(String uid, {String? email}) {
+    final normalizedEmail = (email ?? _uidToEmail[uid])?.trim().toLowerCase();
+    final shared = <Note>[];
+    for (final entry in _notesByUid.entries) {
+      if (entry.key == uid) continue;
+      for (final note in entry.value) {
+        if (note.shareFor(uid: uid, email: normalizedEmail) != null) {
+          shared.add(note);
+        }
+      }
+    }
+    return List<Note>.unmodifiable(sortNotes(shared));
+  }
+
+  void _emitSharedNotesForAll() {
+    for (final entry in _sharedNoteControllersByUid.entries) {
+      final controller = entry.value;
+      if (!controller.isClosed) {
+        controller.add(_sharedNotesFor(entry.key));
+      }
+    }
   }
 
   void _emitLabels(String uid) {
@@ -323,9 +359,66 @@ class LocalNoteRepository implements NoteRepository {
   @override
   Future<Note> saveNote(String uid, Note note) async {
     await _guardWrite();
+    // Check if this is a collaborator editing a shared note owned by another UID (R25, R26).
+    if (note.ownerUid != null && note.ownerUid != uid) {
+      final ownerUid = note.ownerUid!;
+      await _ensureLoaded(ownerUid);
+      return _change(ownerUid, (ownerBucket, ownerLabelSet) {
+        final index = ownerBucket.indexWhere((item) => item.id == note.id);
+        if (index == -1) {
+          throw const NoteFailure('Bạn không có quyền chỉnh sửa ghi chú này.');
+        }
+        final existing = ownerBucket[index];
+        final share = existing.shareFor(uid: uid, email: _uidToEmail[uid]);
+        if (share == null) {
+          throw const NoteFailure('Bạn không có quyền chỉnh sửa ghi chú này.');
+        }
+        if (share.permission != NoteSharePermission.edit) {
+          throw const NoteFailure(
+            'You only have read-only access to this shared note.',
+          );
+        }
+        if (existing.isPasswordProtected &&
+            !isNoteUnlocked(uid, existing.id) &&
+            !isNoteUnlocked(ownerUid, existing.id)) {
+          throw const NoteFailure(
+            'This note is password-protected. Unlock it before editing.',
+          );
+        }
+
+        final cleanedLabels = <String>[];
+        for (final label in note.labels) {
+          final trimmed = label.trim();
+          if (trimmed.isNotEmpty && !cleanedLabels.contains(trimmed)) {
+            cleanedLabels.add(trimmed);
+            ownerLabelSet.add(trimmed);
+          }
+        }
+
+        final updated = existing.copyWith(
+          title: note.title,
+          content: note.content,
+          labels: List<String>.unmodifiable(cleanedLabels),
+          colorIndex: note.colorIndex,
+          updatedAt: note.updatedAt,
+          status: note.status,
+          attachments: note.attachments,
+          syncStatus: NoteSyncStatus.pending,
+        );
+        ownerBucket[index] = updated;
+        return updated;
+      });
+    }
+
     return _change(uid, (bucket, labelSet) {
-      if (note.ownerUid != null && note.ownerUid != uid) {
-        throw const NoteFailure('Bạn không có quyền chỉnh sửa ghi chú này.');
+      final index = bucket.indexWhere((existing) => existing.id == note.id);
+      if (index != -1) {
+        final existing = bucket[index];
+        if (existing.isPasswordProtected && !isNoteUnlocked(uid, existing.id)) {
+          throw const NoteFailure(
+            'This note is password-protected. Unlock it before editing.',
+          );
+        }
       }
 
       final cleanedLabels = <String>[];
@@ -347,17 +440,26 @@ class LocalNoteRepository implements NoteRepository {
         scopedAttachments.add(attachment.copyWith(ownerUid: uid));
       }
 
+      final existing = index == -1 ? null : bucket[index];
       final scoped = note.copyWith(
         ownerUid: uid,
+        ownerEmail: note.ownerEmail ?? existing?.ownerEmail ?? _uidToEmail[uid],
         labels: List<String>.unmodifiable(cleanedLabels),
         attachments: List<NoteAttachment>.unmodifiable(scopedAttachments),
+        passwordHash: note.passwordHash ?? existing?.passwordHash,
+        passwordSalt: note.passwordSalt ?? existing?.passwordSalt,
+        shares: note.shares.isNotEmpty
+            ? note.shares
+            : (existing?.shares ?? const <NoteShareEntry>[]),
         syncStatus: NoteSyncStatus.pending,
       );
-      final index = bucket.indexWhere((existing) => existing.id == scoped.id);
       if (index == -1) {
         bucket.add(scoped);
       } else {
         bucket[index] = scoped;
+      }
+      if (scoped.isPasswordProtected) {
+        _unlockedNotesByUid.putIfAbsent(uid, () => <String>{}).add(scoped.id);
       }
       return scoped;
     });
@@ -383,11 +485,26 @@ class LocalNoteRepository implements NoteRepository {
   @override
   Future<void> deleteNote(String uid, String noteId) async {
     await _guardWrite();
-    await _change<void>(
-      uid,
-      (bucket, _) => bucket.removeWhere((note) => note.id == noteId),
-      emitLabels: false,
-    );
+    await _change<void>(uid, (bucket, _) {
+      final index = bucket.indexWhere((note) => note.id == noteId);
+      if (index == -1) {
+        final ownedByOther = _notesByUid.entries.any(
+          (entry) =>
+              entry.key != uid && entry.value.any((note) => note.id == noteId),
+        );
+        if (ownedByOther) {
+          throw const NoteFailure('Only the note owner can delete this note.');
+        }
+        return;
+      }
+      if (bucket[index].isPasswordProtected && !isNoteUnlocked(uid, noteId)) {
+        throw const NoteFailure(
+          'This note is password-protected. Unlock it before deleting.',
+        );
+      }
+      bucket.removeWhere((note) => note.id == noteId);
+      _unlockedNotesByUid[uid]?.remove(noteId);
+    }, emitLabels: false);
   }
 
   @override
@@ -531,6 +648,512 @@ class LocalNoteRepository implements NoteRepository {
     });
   }
 
+  @override
+  Future<Note> enableNotePassword(
+    String uid,
+    String noteId, {
+    required String password,
+    required String confirmPassword,
+  }) async {
+    await _guardWrite();
+    final validated = NotePasswordSecurity.validateNewPassword(
+      password: password,
+      confirmPassword: confirmPassword,
+    );
+    return _change(uid, (bucket, _) {
+      final index = bucket.indexWhere((note) => note.id == noteId);
+      if (index == -1) {
+        throw const NoteFailure('Không tìm thấy ghi chú.');
+      }
+      final existing = bucket[index];
+      if (existing.isPasswordProtected) {
+        throw const NoteFailure(
+          'Note is already password-protected. Use change password instead.',
+        );
+      }
+      final salt = NotePasswordSecurity.generateSalt();
+      final hash = NotePasswordSecurity.hashPassword(
+        password: validated,
+        salt: salt,
+      );
+      final updated = existing.copyWith(
+        passwordSalt: salt,
+        passwordHash: hash,
+        updatedAt: DateTime.now(),
+        syncStatus: NoteSyncStatus.pending,
+      );
+      bucket[index] = updated;
+      _unlockedNotesByUid.putIfAbsent(uid, () => <String>{}).add(noteId);
+      return updated;
+    }, emitLabels: false);
+  }
+
+  @override
+  Future<bool> verifyNotePassword(
+    String uid,
+    String noteId,
+    String password,
+  ) async {
+    await _ensureLoaded(uid);
+    final bucket = _bucketFor(uid);
+    final index = bucket.indexWhere((note) => note.id == noteId);
+    if (index == -1) {
+      throw const NoteFailure('Không tìm thấy ghi chú.');
+    }
+    final existing = bucket[index];
+    if (!existing.isPasswordProtected) {
+      return true;
+    }
+    final ok = NotePasswordSecurity.verifyPassword(
+      password: password,
+      salt: existing.passwordSalt,
+      expectedHash: existing.passwordHash,
+    );
+    if (!ok) {
+      throw const NoteFailure('Incorrect note password.');
+    }
+    _unlockedNotesByUid.putIfAbsent(uid, () => <String>{}).add(noteId);
+    return true;
+  }
+
+  @override
+  Future<Note> changeNotePassword(
+    String uid,
+    String noteId, {
+    required String currentPassword,
+    required String newPassword,
+    required String confirmNewPassword,
+  }) async {
+    await _guardWrite();
+    final validatedNew = NotePasswordSecurity.validateNewPassword(
+      password: newPassword,
+      confirmPassword: confirmNewPassword,
+    );
+    return _change(uid, (bucket, _) {
+      final index = bucket.indexWhere((note) => note.id == noteId);
+      if (index == -1) {
+        throw const NoteFailure('Không tìm thấy ghi chú.');
+      }
+      final existing = bucket[index];
+      if (!existing.isPasswordProtected) {
+        throw const NoteFailure('This note does not have a password set.');
+      }
+      final verified = NotePasswordSecurity.verifyPassword(
+        password: currentPassword,
+        salt: existing.passwordSalt,
+        expectedHash: existing.passwordHash,
+      );
+      if (!verified) {
+        throw const NoteFailure('Current note password is incorrect.');
+      }
+      final newSalt = NotePasswordSecurity.generateSalt();
+      final newHash = NotePasswordSecurity.hashPassword(
+        password: validatedNew,
+        salt: newSalt,
+      );
+      final updated = existing.copyWith(
+        passwordSalt: newSalt,
+        passwordHash: newHash,
+        updatedAt: DateTime.now(),
+        syncStatus: NoteSyncStatus.pending,
+      );
+      bucket[index] = updated;
+      _unlockedNotesByUid.putIfAbsent(uid, () => <String>{}).add(noteId);
+      return updated;
+    }, emitLabels: false);
+  }
+
+  @override
+  Future<Note> disableNotePassword(
+    String uid,
+    String noteId, {
+    required String currentPassword,
+  }) async {
+    await _guardWrite();
+    return _change(uid, (bucket, _) {
+      final index = bucket.indexWhere((note) => note.id == noteId);
+      if (index == -1) {
+        throw const NoteFailure('Không tìm thấy ghi chú.');
+      }
+      final existing = bucket[index];
+      if (!existing.isPasswordProtected) {
+        return existing;
+      }
+      final verified = NotePasswordSecurity.verifyPassword(
+        password: currentPassword,
+        salt: existing.passwordSalt,
+        expectedHash: existing.passwordHash,
+      );
+      if (!verified) {
+        throw const NoteFailure('Current note password is incorrect.');
+      }
+      final updated = existing.copyWith(
+        clearPasswordProtection: true,
+        updatedAt: DateTime.now(),
+        syncStatus: NoteSyncStatus.pending,
+      );
+      bucket[index] = updated;
+      _unlockedNotesByUid[uid]?.remove(noteId);
+      return updated;
+    }, emitLabels: false);
+  }
+
+  @override
+  bool isNoteUnlocked(String uid, String noteId) {
+    return _unlockedNotesByUid[uid]?.contains(noteId) ?? false;
+  }
+
+  @override
+  void lockNoteSession(String uid, String noteId) {
+    _unlockedNotesByUid[uid]?.remove(noteId);
+  }
+
+  static final RegExp _emailPattern = RegExp(
+    r'^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$',
+  );
+
+  String _validateRecipientEmail(String rawEmail, {String? ownerEmail}) {
+    final normalized = rawEmail.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      throw const NoteFailure('Recipient email address cannot be empty.');
+    }
+    if (!_emailPattern.hasMatch(normalized)) {
+      throw const NoteFailure('Enter a valid recipient email address.');
+    }
+    final cleanOwner = ownerEmail?.trim().toLowerCase();
+    if (cleanOwner != null && cleanOwner == normalized) {
+      throw const NoteFailure('You cannot share a note with yourself.');
+    }
+    if (requireRegisteredRecipients && !_emailToUid.containsKey(normalized)) {
+      throw const NoteFailure(
+        'No registered account found for that email address.',
+      );
+    }
+    return normalized;
+  }
+
+  @override
+  void registerAccountIdentity({required String uid, required String email}) {
+    final cleanUid = uid.trim();
+    final cleanEmail = email.trim().toLowerCase();
+    if (cleanUid.isEmpty || cleanEmail.isEmpty) return;
+    _emailToUid[cleanEmail] = cleanUid;
+    _uidToEmail[cleanUid] = cleanEmail;
+
+    // Backfill recipientUid on any existing shares targeting cleanEmail.
+    for (final entry in _notesByUid.entries) {
+      final bucket = entry.value;
+      for (var i = 0; i < bucket.length; i++) {
+        final note = bucket[i];
+        if (!note.isShared) continue;
+        var changed = false;
+        final updatedShares = note.shares.map((share) {
+          if (share.normalizedRecipientEmail == cleanEmail &&
+              share.recipientUid != cleanUid) {
+            changed = true;
+            return share.copyWith(recipientUid: cleanUid);
+          }
+          return share;
+        }).toList();
+        if (changed) {
+          bucket[i] = note.copyWith(
+            shares: List<NoteShareEntry>.unmodifiable(updatedShares),
+          );
+        }
+      }
+    }
+    _emitSharedNotesForAll();
+  }
+
+  @override
+  Stream<List<Note>> watchSharedWithMe(String uid, {String? email}) {
+    if (email != null && email.trim().isNotEmpty) {
+      registerAccountIdentity(uid: uid, email: email);
+    }
+    final controller = _sharedNoteControllersByUid.putIfAbsent(
+      uid,
+      () => StreamController<List<Note>>.broadcast(),
+    );
+
+    return Stream<List<Note>>.multi((multi) {
+      StreamSubscription<List<Note>>? subscription;
+      var cancelled = false;
+      multi.onCancel = () {
+        cancelled = true;
+        return subscription?.cancel();
+      };
+      () async {
+        try {
+          await _ensureLoaded(uid);
+          if (cancelled) return;
+          multi.add(_sharedNotesFor(uid, email: email));
+          subscription = controller.stream.listen(
+            multi.add,
+            onError: multi.addError,
+            onDone: multi.close,
+          );
+        } catch (error, stackTrace) {
+          if (!cancelled) multi.addError(error, stackTrace);
+        }
+      }();
+    });
+  }
+
+  @override
+  Future<List<Note>> listSharedWithMe(String uid, {String? email}) async {
+    if (email != null && email.trim().isNotEmpty) {
+      registerAccountIdentity(uid: uid, email: email);
+    }
+    await _ensureLoaded(uid);
+    return _sharedNotesFor(uid, email: email);
+  }
+
+  @override
+  Future<Note> shareNote(
+    String ownerUid,
+    String noteId, {
+    required String recipientEmail,
+    required NoteSharePermission permission,
+    String? ownerEmail,
+  }) async {
+    await _guardWrite();
+    final resolvedOwnerEmail =
+        (ownerEmail ?? _uidToEmail[ownerUid] ?? 'owner@noteflow.app')
+            .trim()
+            .toLowerCase();
+    if (ownerEmail != null && ownerEmail.trim().isNotEmpty) {
+      registerAccountIdentity(uid: ownerUid, email: resolvedOwnerEmail);
+    }
+    final normalizedRecipient = _validateRecipientEmail(
+      recipientEmail,
+      ownerEmail: resolvedOwnerEmail,
+    );
+    final recipientUid = _emailToUid[normalizedRecipient];
+    if (recipientUid == ownerUid) {
+      throw const NoteFailure('You cannot share a note with yourself.');
+    }
+
+    return _change(ownerUid, (bucket, _) {
+      final index = bucket.indexWhere((note) => note.id == noteId);
+      if (index == -1) {
+        throw const NoteFailure(
+          'Only the note owner can manage sharing permissions.',
+        );
+      }
+      final existing = bucket[index];
+      if (existing.ownerUid != null && existing.ownerUid != ownerUid) {
+        throw const NoteFailure(
+          'Only the note owner can manage sharing permissions.',
+        );
+      }
+      if (existing.isPasswordProtected &&
+          !isNoteUnlocked(ownerUid, existing.id)) {
+        throw const NoteFailure(
+          'Unlock this password-protected note before sharing it.',
+        );
+      }
+      final duplicate = existing.shares.any(
+        (entry) => entry.normalizedRecipientEmail == normalizedRecipient,
+      );
+      if (duplicate) {
+        throw const NoteFailure(
+          'This note is already shared with that email address.',
+        );
+      }
+
+      final now = DateTime.now();
+      final newEntry = NoteShareEntry(
+        recipientEmail: normalizedRecipient,
+        recipientUid: recipientUid,
+        permission: permission,
+        sharedAt: now,
+        sharedByEmail: resolvedOwnerEmail,
+        sharedByUid: ownerUid,
+      );
+      final updated = existing.copyWith(
+        ownerUid: ownerUid,
+        ownerEmail: existing.ownerEmail ?? resolvedOwnerEmail,
+        shares: List<NoteShareEntry>.unmodifiable([
+          ...existing.shares,
+          newEntry,
+        ]),
+        updatedAt: now,
+        syncStatus: NoteSyncStatus.pending,
+      );
+      bucket[index] = updated;
+      return updated;
+    }, emitLabels: false);
+  }
+
+  @override
+  Future<Note> updateSharePermission(
+    String ownerUid,
+    String noteId, {
+    required String recipientEmail,
+    required NoteSharePermission permission,
+  }) async {
+    await _guardWrite();
+    final normalizedRecipient = recipientEmail.trim().toLowerCase();
+    return _change(ownerUid, (bucket, _) {
+      final index = bucket.indexWhere((note) => note.id == noteId);
+      if (index == -1) {
+        throw const NoteFailure(
+          'Only the note owner can manage sharing permissions.',
+        );
+      }
+      final existing = bucket[index];
+      if (existing.ownerUid != null && existing.ownerUid != ownerUid) {
+        throw const NoteFailure(
+          'Only the note owner can manage sharing permissions.',
+        );
+      }
+      var found = false;
+      final updatedShares = existing.shares.map((entry) {
+        if (entry.normalizedRecipientEmail == normalizedRecipient) {
+          found = true;
+          return entry.copyWith(permission: permission);
+        }
+        return entry;
+      }).toList();
+      if (!found) {
+        throw const NoteFailure('Recipient not found in share list.');
+      }
+      final updated = existing.copyWith(
+        shares: List<NoteShareEntry>.unmodifiable(updatedShares),
+        updatedAt: DateTime.now(),
+        syncStatus: NoteSyncStatus.pending,
+      );
+      bucket[index] = updated;
+      return updated;
+    }, emitLabels: false);
+  }
+
+  @override
+  Future<Note> revokeShare(
+    String ownerUid,
+    String noteId, {
+    required String recipientEmail,
+  }) async {
+    await _guardWrite();
+    final normalizedRecipient = recipientEmail.trim().toLowerCase();
+    return _change(ownerUid, (bucket, _) {
+      final index = bucket.indexWhere((note) => note.id == noteId);
+      if (index == -1) {
+        throw const NoteFailure(
+          'Only the note owner can manage sharing permissions.',
+        );
+      }
+      final existing = bucket[index];
+      if (existing.ownerUid != null && existing.ownerUid != ownerUid) {
+        throw const NoteFailure(
+          'Only the note owner can manage sharing permissions.',
+        );
+      }
+      final remaining = existing.shares
+          .where(
+            (entry) => entry.normalizedRecipientEmail != normalizedRecipient,
+          )
+          .toList();
+      final updated = existing.copyWith(
+        shares: List<NoteShareEntry>.unmodifiable(remaining),
+        updatedAt: DateTime.now(),
+        syncStatus: NoteSyncStatus.pending,
+      );
+      bucket[index] = updated;
+      return updated;
+    }, emitLabels: false);
+  }
+
+  @override
+  Future<List<Note>> synchronizeNotes(
+    String uid, {
+    bool simulateOfflineFailure = false,
+  }) async {
+    await _guardWrite();
+    if (simulateOfflineFailure) {
+      await _change(uid, (bucket, _) {
+        for (var i = 0; i < bucket.length; i++) {
+          final current = bucket[i];
+          if (current.syncStatus != NoteSyncStatus.synced) {
+            bucket[i] = current.copyWith(syncStatus: NoteSyncStatus.failed);
+          }
+        }
+        return null;
+      }, emitLabels: false);
+      throw const NoteFailure(
+        'Offline or network error: pending changes are saved locally and will sync when online.',
+      );
+    }
+
+    return _change(uid, (bucket, _) {
+      for (var i = 0; i < bucket.length; i++) {
+        final current = bucket[i];
+        if (current.syncStatus != NoteSyncStatus.synced) {
+          bucket[i] = current.copyWith(syncStatus: NoteSyncStatus.synced);
+        }
+      }
+      return List<Note>.unmodifiable(sortNotes(bucket));
+    }, emitLabels: false);
+  }
+
+  @override
+  Future<Note> resolveConflict(
+    String uid, {
+    required Note localNote,
+    required Note remoteNote,
+  }) async {
+    await _guardWrite();
+    if (localNote.id != remoteNote.id) {
+      throw const NoteFailure(
+        'Cannot resolve conflict for notes with different IDs.',
+      );
+    }
+
+    return _change(uid, (bucket, labelSet) {
+      // Deterministic Last-Write-Wins (LWW) by updatedAt timestamp, with safe
+      // content preservation if both copies contain distinct non-empty bodies.
+      final localIsNewer = !localNote.updatedAt.isBefore(remoteNote.updatedAt);
+      final winner = localIsNewer ? localNote : remoteNote;
+      final loser = localIsNewer ? remoteNote : localNote;
+
+      var resolvedContent = winner.content;
+      if (loser.content.trim().isNotEmpty &&
+          loser.content.trim() != winner.content.trim() &&
+          !winner.content.contains(loser.content.trim())) {
+        resolvedContent =
+            '${winner.content}\n\n--- [Conflict backup from ${loser.updatedAt.toIso8601String()}] ---\n${loser.content}';
+      }
+
+      final mergedLabels = <String>{...winner.labels, ...loser.labels}.toList();
+      final mergedAttachments = <NoteAttachment>[...winner.attachments];
+      for (final att in loser.attachments) {
+        if (!mergedAttachments.any((item) => item.id == att.id)) {
+          mergedAttachments.add(att);
+        }
+      }
+
+      final resolved = winner.copyWith(
+        ownerUid: uid,
+        content: resolvedContent,
+        labels: List<String>.unmodifiable(mergedLabels),
+        attachments: List<NoteAttachment>.unmodifiable(mergedAttachments),
+        syncStatus: NoteSyncStatus.synced,
+      );
+
+      for (final label in resolved.labels) {
+        labelSet.add(label);
+      }
+
+      final index = bucket.indexWhere((item) => item.id == resolved.id);
+      if (index == -1) {
+        bucket.add(resolved);
+      } else {
+        bucket[index] = resolved;
+      }
+      return resolved;
+    });
+  }
+
   List<String> _sortedLabelsFrom(Set<String> labels) {
     final sorted = labels.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -541,10 +1164,14 @@ class LocalNoteRepository implements NoteRepository {
     for (final controller in _noteControllersByUid.values) {
       await controller.close();
     }
+    for (final controller in _sharedNoteControllersByUid.values) {
+      await controller.close();
+    }
     for (final controller in _labelControllersByUid.values) {
       await controller.close();
     }
     _noteControllersByUid.clear();
+    _sharedNoteControllersByUid.clear();
     _labelControllersByUid.clear();
     _loadsByUid.clear();
   }

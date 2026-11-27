@@ -13,6 +13,7 @@ class LoginScreen extends StatefulWidget {
     this.onForgotPassword,
     this.isLoading = false,
     this.error,
+    this.notice,
   });
 
   final Future<void> Function(String email, String password)? onSubmit;
@@ -20,6 +21,7 @@ class LoginScreen extends StatefulWidget {
   final VoidCallback? onForgotPassword;
   final bool isLoading;
   final String? error;
+  final String? notice;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -201,7 +203,10 @@ class _LoginScreenState extends State<LoginScreen> {
               validator: Validators.email,
             ),
             const SizedBox(height: AppSpacing.lg),
-            Row(
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: AppSpacing.md,
               children: [
                 Text(
                   'Password',
@@ -209,7 +214,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const Spacer(),
                 TextButton(
                   onPressed: widget.isLoading ? null : widget.onForgotPassword,
                   style: TextButton.styleFrom(
@@ -258,6 +262,10 @@ class _LoginScreenState extends State<LoginScreen> {
               validator: Validators.requiredPassword,
             ),
             const SizedBox(height: AppSpacing.xl),
+            if (widget.notice != null) ...[
+              Semantics(liveRegion: true, child: Text(widget.notice!)),
+              const SizedBox(height: AppSpacing.md),
+            ],
             if (widget.error != null) ...[
               Semantics(
                 liveRegion: true,
@@ -278,16 +286,20 @@ class _LoginScreenState extends State<LoginScreen> {
             Row(
               children: [
                 Expanded(child: Divider(color: colors.outlineVariant)),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.md,
-                  ),
-                  child: Text(
-                    'NEW TO NOTEFLOW?',
-                    style: text.labelSmall?.copyWith(
-                      color: tokens.textMuted,
-                      letterSpacing: 1.2,
-                      fontWeight: FontWeight.w700,
+                Expanded(
+                  flex: 4,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
+                    child: Text(
+                      'NEW TO NOTEFLOW?',
+                      textAlign: TextAlign.center,
+                      style: text.labelSmall?.copyWith(
+                        color: tokens.textMuted,
+                        letterSpacing: 1.2,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),

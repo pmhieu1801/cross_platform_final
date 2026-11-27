@@ -3,13 +3,18 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../features/auth/domain/auth_repository.dart';
+import '../features/notes/application/note_password_security.dart';
+import '../features/notes/domain/note_repository.dart';
+import '../features/preferences/domain/user_preferences.dart';
 import '../models/note.dart';
 import '../services/note_storage.dart';
 import '../theme/theme.dart';
 import '../widgets/widgets.dart';
 import 'note_editor_sheet.dart';
 
-enum _NotesSection { all, pinned }
+part 'quick_settings_panel.dart';
+
+enum _NotesSection { all, pinned, shared }
 
 enum _NotesLayout { grid, list }
 
@@ -18,6 +23,7 @@ class NotesHomeScreen extends StatefulWidget {
     super.key,
     this.initialNotes,
     this.notes,
+    this.sharedNotes,
     this.labels,
     this.isLoading = false,
     this.errorMessage,
@@ -27,12 +33,33 @@ class NotesHomeScreen extends StatefulWidget {
     this.authBusy = false,
     this.authError,
     this.onLogout,
+    this.onChangePassword,
+    this.onProfile,
+    this.onPreferences,
+    this.themeMode,
+    this.onThemeModeChanged,
+    this.viewMode,
+    this.onViewModeChanged,
+    this.viewModeEnabled = true,
+    this.preferencesError,
+    this.noteFontScale = 1,
+    this.onNoteFontScaleChanged,
     this.onSaveNote,
     this.onDeleteNote,
     this.onTogglePin,
     this.onAddLabel,
     this.onRenameLabel,
     this.onDeleteLabel,
+    this.onEnableNotePassword,
+    this.onVerifyNotePassword,
+    this.onChangeNotePassword,
+    this.onDisableNotePassword,
+    this.isNoteUnlocked,
+    this.onLockNoteSession,
+    this.onShareNote,
+    this.onUpdateSharePermission,
+    this.onRevokeShare,
+    this.onSynchronizeNotes,
     this.editorDebounceDuration = const Duration(milliseconds: 400),
   });
 
@@ -41,6 +68,9 @@ class NotesHomeScreen extends StatefulWidget {
 
   /// Externally managed notes (e.g. from Riverpod [accountNotesStreamProvider]).
   final List<Note>? notes;
+
+  /// Externally managed notes shared WITH the active account (R25, R26).
+  final List<Note>? sharedNotes;
 
   /// Externally managed label catalog (e.g. from [accountLabelsStreamProvider]).
   final List<String>? labels;
@@ -55,6 +85,19 @@ class NotesHomeScreen extends StatefulWidget {
   final bool authBusy;
   final String? authError;
   final VoidCallback? onLogout;
+  final VoidCallback? onChangePassword;
+  final VoidCallback? onProfile;
+  final VoidCallback? onPreferences;
+
+  /// Optional controlled theme & settings supplied by M1.
+  final PreferenceThemeMode? themeMode;
+  final ValueChanged<PreferenceThemeMode>? onThemeModeChanged;
+  final NotesViewMode? viewMode;
+  final ValueChanged<NotesViewMode>? onViewModeChanged;
+  final bool viewModeEnabled;
+  final String? preferencesError;
+  final double noteFontScale;
+  final ValueChanged<double>? onNoteFontScaleChanged;
 
   /// External persistence callbacks. When omitted, mutations update local state.
   final Future<Note?> Function(Note note, {required bool isAutosave})?
@@ -64,6 +107,59 @@ class NotesHomeScreen extends StatefulWidget {
   final Future<String?> Function(String name)? onAddLabel;
   final Future<String?> Function(String oldName, String newName)? onRenameLabel;
   final Future<String?> Function(String name)? onDeleteLabel;
+
+  /// Individual note password protection callbacks (R23, R24).
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String password,
+    String confirmPassword,
+  )?
+  onEnableNotePassword;
+
+  final Future<String?> Function(String noteId, String password)?
+  onVerifyNotePassword;
+
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String currentPassword,
+    String newPassword,
+    String confirmNewPassword,
+  )?
+  onChangeNotePassword;
+
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String currentPassword,
+  )?
+  onDisableNotePassword;
+
+  final bool Function(String noteId)? isNoteUnlocked;
+  final void Function(String noteId)? onLockNoteSession;
+
+  /// Note sharing callbacks (R25, R26).
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String recipientEmail,
+    NoteSharePermission permission,
+  )?
+  onShareNote;
+
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String recipientEmail,
+    NoteSharePermission permission,
+  )?
+  onUpdateSharePermission;
+
+  final Future<({Note? note, String? error})> Function(
+    String noteId,
+    String recipientEmail,
+  )?
+  onRevokeShare;
+
+  /// Offline synchronization callback (R31).
+  final Future<String?> Function({bool simulateOfflineFailure})?
+  onSynchronizeNotes;
 
   final Duration editorDebounceDuration;
 
@@ -76,7 +172,12 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   late Set<String> _localLabelCatalog;
   final _searchController = TextEditingController();
   _NotesSection _section = _NotesSection.all;
-  _NotesLayout _layout = _NotesLayout.grid;
+  _NotesLayout _localLayout = _NotesLayout.grid;
+  _NotesLayout get _layout => widget.viewMode == null
+      ? _localLayout
+      : widget.viewMode == NotesViewMode.grid
+      ? _NotesLayout.grid
+      : _NotesLayout.list;
   String? _selectedLabel;
   String _query = '';
 
@@ -85,6 +186,10 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   bool _isCreatingNew = false;
   int _editorSessionCounter = 0;
   String _editorSessionKey = 'editor-session-0';
+  final Set<String> _localUnlockedNoteIds = <String>{};
+  bool _offlineMode = false;
+  bool _syncing = false;
+  String? _syncFeedback;
 
   @override
   void initState() {
@@ -108,6 +213,27 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant NotesHomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final active = _activeEditorNote;
+    if (active != null &&
+        (widget.notes != null || widget.sharedNotes != null)) {
+      final combined = <Note>[
+        ...(widget.notes ?? const <Note>[]),
+        ...(widget.sharedNotes ?? const <Note>[]),
+      ];
+      final matchIndex = combined.indexWhere((item) => item.id == active.id);
+      if (matchIndex == -1) {
+        // The note was deleted or share access was revoked in real time (R26).
+        _activeEditorNote = null;
+        _isCreatingNew = false;
+      } else {
+        _activeEditorNote = combined[matchIndex];
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
@@ -118,6 +244,28 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   }
 
   List<Note> get _allNotes => widget.notes ?? _localNotes;
+
+  List<Note> get _sharedWithMeNotes => widget.sharedNotes ?? const <Note>[];
+
+  NoteShareEntry? _viewerShareEntry(Note note) {
+    if (widget.user == null) {
+      // In standalone tests without user, a note with ownerUid != null and a
+      // share entry is treated as shared with the first share recipient.
+      if (note.ownerUid != null && note.shares.isNotEmpty) {
+        return note.shares.first;
+      }
+      return null;
+    }
+    if (note.ownerUid == widget.user!.uid) return null;
+    return note.shareFor(uid: widget.user!.uid, email: widget.user!.email);
+  }
+
+  bool _isReadOnlyForViewer(Note? note) {
+    if (note == null) return false;
+    final entry = _viewerShareEntry(note);
+    if (entry == null) return false;
+    return entry.permission == NoteSharePermission.readOnly;
+  }
 
   List<String> get _labels {
     if (widget.labels != null) {
@@ -134,16 +282,29 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     return merged;
   }
 
+  bool _isNoteUnlocked(Note note) {
+    if (!note.isPasswordProtected) return true;
+    if (_localUnlockedNoteIds.contains(note.id)) return true;
+    return widget.isNoteUnlocked?.call(note.id) ?? false;
+  }
+
   List<Note> get _visibleNotes {
     final query = _query.trim().toLowerCase();
-    final filtered = _allNotes.where((note) {
-      final matchesSection = _section == _NotesSection.all || note.isPinned;
+    final source = _section == _NotesSection.shared
+        ? _sharedWithMeNotes
+        : _allNotes;
+    final filtered = source.where((note) {
+      final matchesSection =
+          _section == _NotesSection.all ||
+          _section == _NotesSection.shared ||
+          note.isPinned;
       final matchesLabel =
           _selectedLabel == null || note.labels.contains(_selectedLabel);
+      final canSearchContent = _isNoteUnlocked(note);
       final matchesQuery =
           query.isEmpty ||
           note.title.toLowerCase().contains(query) ||
-          note.content.toLowerCase().contains(query) ||
+          (canSearchContent && note.content.toLowerCase().contains(query)) ||
           note.labels.any((label) => label.toLowerCase().contains(query));
       return matchesSection && matchesLabel && matchesQuery;
     });
@@ -205,9 +366,359 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
   }
 
   Future<void> _confirmAndDelete(Note note) async {
+    if (note.isPasswordProtected && !_isNoteUnlocked(note)) {
+      final unlocked = await _ensureNoteUnlocked(note);
+      if (!unlocked || !mounted) return;
+    }
     final confirmed = await confirmDeleteNote(context, title: note.title);
     if (!confirmed || !mounted) return;
     await _deleteNoteWithoutConfirm(note.id);
+  }
+
+  Future<bool> _ensureNoteUnlocked(Note note) async {
+    if (_isNoteUnlocked(note)) return true;
+    final unlocked = await showUnlockNoteDialog(
+      context,
+      note: note,
+      onVerify: (password) => _handleVerifyNotePassword(note, password),
+    );
+    return unlocked;
+  }
+
+  Future<String?> _handleVerifyNotePassword(Note note, String password) async {
+    if (widget.onVerifyNotePassword != null) {
+      final error = await widget.onVerifyNotePassword!(note.id, password);
+      if (error == null && mounted) {
+        setState(() => _localUnlockedNoteIds.add(note.id));
+      }
+      return error;
+    }
+    final ok = NotePasswordSecurity.verifyPassword(
+      password: password,
+      salt: note.passwordSalt,
+      expectedHash: note.passwordHash,
+    );
+    if (!ok) return 'Incorrect note password.';
+    if (mounted) {
+      setState(() => _localUnlockedNoteIds.add(note.id));
+    }
+    return null;
+  }
+
+  Future<({Note? note, String? error})> _handleEnableNotePassword(
+    Note draft,
+    String password,
+    String confirmPassword,
+  ) async {
+    if (widget.onEnableNotePassword != null) {
+      final res = await widget.onEnableNotePassword!(
+        draft.id,
+        password,
+        confirmPassword,
+      );
+      if (res.note != null && mounted) {
+        setState(() {
+          _localUnlockedNoteIds.add(draft.id);
+          if (_activeEditorNote?.id == draft.id) {
+            _activeEditorNote = res.note;
+          }
+        });
+      }
+      return res;
+    }
+
+    try {
+      final validated = NotePasswordSecurity.validateNewPassword(
+        password: password,
+        confirmPassword: confirmPassword,
+      );
+      final salt = NotePasswordSecurity.generateSalt();
+      final hash = NotePasswordSecurity.hashPassword(
+        password: validated,
+        salt: salt,
+      );
+      final updated = draft.copyWith(
+        passwordSalt: salt,
+        passwordHash: hash,
+        updatedAt: DateTime.now(),
+        syncStatus: NoteSyncStatus.pending,
+      );
+      setState(() {
+        _localUnlockedNoteIds.add(updated.id);
+        final index = _localNotes.indexWhere((item) => item.id == updated.id);
+        if (index == -1) {
+          _localNotes.add(updated);
+        } else {
+          _localNotes[index] = updated;
+        }
+        if (_activeEditorNote?.id == updated.id) {
+          _activeEditorNote = updated;
+        }
+      });
+      await _persistLocalNotes();
+      return (note: updated, error: null);
+    } on NoteFailure catch (error) {
+      return (note: null, error: error.message);
+    }
+  }
+
+  Future<({Note? note, String? error})> _handleChangeNotePassword(
+    Note draft,
+    String currentPassword,
+    String newPassword,
+    String confirmNewPassword,
+  ) async {
+    if (widget.onChangeNotePassword != null) {
+      final res = await widget.onChangeNotePassword!(
+        draft.id,
+        currentPassword,
+        newPassword,
+        confirmNewPassword,
+      );
+      if (res.note != null && mounted) {
+        setState(() {
+          _localUnlockedNoteIds.add(draft.id);
+          if (_activeEditorNote?.id == draft.id) {
+            _activeEditorNote = res.note;
+          }
+        });
+      }
+      return res;
+    }
+
+    final existingIndex = _localNotes.indexWhere((item) => item.id == draft.id);
+    final source = existingIndex == -1 ? draft : _localNotes[existingIndex];
+    final verified = NotePasswordSecurity.verifyPassword(
+      password: currentPassword,
+      salt: source.passwordSalt,
+      expectedHash: source.passwordHash,
+    );
+    if (!verified) {
+      return (note: null, error: 'Current note password is incorrect.');
+    }
+
+    try {
+      final validated = NotePasswordSecurity.validateNewPassword(
+        password: newPassword,
+        confirmPassword: confirmNewPassword,
+      );
+      final newSalt = NotePasswordSecurity.generateSalt();
+      final newHash = NotePasswordSecurity.hashPassword(
+        password: validated,
+        salt: newSalt,
+      );
+      final updated = source.copyWith(
+        passwordSalt: newSalt,
+        passwordHash: newHash,
+        updatedAt: DateTime.now(),
+        syncStatus: NoteSyncStatus.pending,
+      );
+      setState(() {
+        _localUnlockedNoteIds.add(updated.id);
+        if (existingIndex == -1) {
+          _localNotes.add(updated);
+        } else {
+          _localNotes[existingIndex] = updated;
+        }
+        if (_activeEditorNote?.id == updated.id) {
+          _activeEditorNote = updated;
+        }
+      });
+      await _persistLocalNotes();
+      return (note: updated, error: null);
+    } on NoteFailure catch (error) {
+      return (note: null, error: error.message);
+    }
+  }
+
+  Future<({Note? note, String? error})> _handleDisableNotePassword(
+    Note draft,
+    String currentPassword,
+  ) async {
+    if (widget.onDisableNotePassword != null) {
+      final res = await widget.onDisableNotePassword!(
+        draft.id,
+        currentPassword,
+      );
+      if (res.note != null && mounted) {
+        setState(() {
+          _localUnlockedNoteIds.remove(draft.id);
+          if (_activeEditorNote?.id == draft.id) {
+            _activeEditorNote = res.note;
+          }
+        });
+      }
+      return res;
+    }
+
+    final existingIndex = _localNotes.indexWhere((item) => item.id == draft.id);
+    final source = existingIndex == -1 ? draft : _localNotes[existingIndex];
+    final verified = NotePasswordSecurity.verifyPassword(
+      password: currentPassword,
+      salt: source.passwordSalt,
+      expectedHash: source.passwordHash,
+    );
+    if (!verified) {
+      return (note: null, error: 'Current note password is incorrect.');
+    }
+
+    final updated = source.copyWith(
+      clearPasswordProtection: true,
+      updatedAt: DateTime.now(),
+      syncStatus: NoteSyncStatus.pending,
+    );
+    setState(() {
+      _localUnlockedNoteIds.remove(updated.id);
+      if (existingIndex != -1) {
+        _localNotes[existingIndex] = updated;
+      }
+      if (_activeEditorNote?.id == updated.id) {
+        _activeEditorNote = updated;
+      }
+    });
+    await _persistLocalNotes();
+    return (note: updated, error: null);
+  }
+
+  void _lockNoteSession(String noteId) {
+    widget.onLockNoteSession?.call(noteId);
+    setState(() {
+      _localUnlockedNoteIds.remove(noteId);
+      if (_activeEditorNote?.id == noteId) {
+        _activeEditorNote = null;
+        _isCreatingNew = false;
+      }
+    });
+  }
+
+  Future<({Note? note, String? error})> _handleShareNote(
+    Note draft,
+    String recipientEmail,
+    NoteSharePermission permission,
+  ) async {
+    if (widget.onShareNote != null) {
+      final res = await widget.onShareNote!(
+        draft.id,
+        recipientEmail,
+        permission,
+      );
+      if (res.note != null && mounted && _activeEditorNote?.id == draft.id) {
+        setState(() => _activeEditorNote = res.note);
+      }
+      return res;
+    }
+
+    final normalized = recipientEmail.trim().toLowerCase();
+    if (normalized.isEmpty || !normalized.contains('@')) {
+      return (note: null, error: 'Enter a valid recipient email address.');
+    }
+    final existingIndex = _localNotes.indexWhere((item) => item.id == draft.id);
+    final source = existingIndex == -1 ? draft : _localNotes[existingIndex];
+    if (source.shares.any((s) => s.normalizedRecipientEmail == normalized)) {
+      return (
+        note: null,
+        error: 'This note is already shared with that email address.',
+      );
+    }
+    final newEntry = NoteShareEntry(
+      recipientEmail: normalized,
+      permission: permission,
+      sharedAt: DateTime.now(),
+      sharedByEmail: widget.user?.email ?? 'owner@noteflow.app',
+      sharedByUid: widget.user?.uid,
+    );
+    final updated = source.copyWith(
+      shares: List<NoteShareEntry>.unmodifiable([...source.shares, newEntry]),
+      updatedAt: DateTime.now(),
+    );
+    setState(() {
+      if (existingIndex == -1) {
+        _localNotes.add(updated);
+      } else {
+        _localNotes[existingIndex] = updated;
+      }
+      if (_activeEditorNote?.id == updated.id) {
+        _activeEditorNote = updated;
+      }
+    });
+    await _persistLocalNotes();
+    return (note: updated, error: null);
+  }
+
+  Future<({Note? note, String? error})> _handleUpdateSharePermission(
+    Note draft,
+    String recipientEmail,
+    NoteSharePermission permission,
+  ) async {
+    if (widget.onUpdateSharePermission != null) {
+      final res = await widget.onUpdateSharePermission!(
+        draft.id,
+        recipientEmail,
+        permission,
+      );
+      if (res.note != null && mounted && _activeEditorNote?.id == draft.id) {
+        setState(() => _activeEditorNote = res.note);
+      }
+      return res;
+    }
+
+    final normalized = recipientEmail.trim().toLowerCase();
+    final existingIndex = _localNotes.indexWhere((item) => item.id == draft.id);
+    final source = existingIndex == -1 ? draft : _localNotes[existingIndex];
+    final updatedShares = source.shares.map((s) {
+      if (s.normalizedRecipientEmail == normalized) {
+        return s.copyWith(permission: permission);
+      }
+      return s;
+    }).toList();
+    final updated = source.copyWith(
+      shares: List<NoteShareEntry>.unmodifiable(updatedShares),
+      updatedAt: DateTime.now(),
+    );
+    setState(() {
+      if (existingIndex != -1) {
+        _localNotes[existingIndex] = updated;
+      }
+      if (_activeEditorNote?.id == updated.id) {
+        _activeEditorNote = updated;
+      }
+    });
+    await _persistLocalNotes();
+    return (note: updated, error: null);
+  }
+
+  Future<({Note? note, String? error})> _handleRevokeShare(
+    Note draft,
+    String recipientEmail,
+  ) async {
+    if (widget.onRevokeShare != null) {
+      final res = await widget.onRevokeShare!(draft.id, recipientEmail);
+      if (res.note != null && mounted && _activeEditorNote?.id == draft.id) {
+        setState(() => _activeEditorNote = res.note);
+      }
+      return res;
+    }
+
+    final normalized = recipientEmail.trim().toLowerCase();
+    final existingIndex = _localNotes.indexWhere((item) => item.id == draft.id);
+    final source = existingIndex == -1 ? draft : _localNotes[existingIndex];
+    final remaining = source.shares
+        .where((s) => s.normalizedRecipientEmail != normalized)
+        .toList();
+    final updated = source.copyWith(
+      shares: List<NoteShareEntry>.unmodifiable(remaining),
+      updatedAt: DateTime.now(),
+    );
+    setState(() {
+      if (existingIndex != -1) {
+        _localNotes[existingIndex] = updated;
+      }
+      if (_activeEditorNote?.id == updated.id) {
+        _activeEditorNote = updated;
+      }
+    });
+    await _persistLocalNotes();
+    return (note: updated, error: null);
   }
 
   Future<void> _togglePin(Note note) async {
@@ -312,6 +823,86 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     return null;
   }
 
+  bool _isLightThemeActive(BuildContext context) {
+    final mode = widget.themeMode;
+    if (mode == PreferenceThemeMode.light) return true;
+    if (mode == PreferenceThemeMode.dark) return false;
+    return Theme.of(context).brightness == Brightness.light;
+  }
+
+  final MenuController _sidebarSettingsMenu = MenuController();
+  final MenuController _headerSettingsMenu = MenuController();
+
+  bool get _hasQuickSettings =>
+      widget.onPreferences != null || widget.onThemeModeChanged != null;
+
+  void _changeLayout(_NotesLayout layout) {
+    if (widget.onViewModeChanged != null) {
+      widget.onViewModeChanged!(
+        layout == _NotesLayout.grid ? NotesViewMode.grid : NotesViewMode.list,
+      );
+    } else {
+      setState(() => _localLayout = layout);
+    }
+  }
+
+  /// Settings popover anchored to the gear button (theme switch, view mode,
+  /// note text size) so users never leave the notes screen for quick tweaks.
+  Widget _buildQuickSettingsButton(
+    BuildContext context, {
+    required MenuController controller,
+    double iconSize = 20,
+    Color? iconColor,
+  }) {
+    final layoutEnabled =
+        widget.viewModeEnabled &&
+        (widget.viewMode == null || widget.onViewModeChanged != null);
+    return MenuAnchor(
+      controller: controller,
+      alignmentOffset: const Offset(0, 8),
+      style: MenuStyle(
+        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+        elevation: const WidgetStatePropertyAll(10),
+        backgroundColor: WidgetStatePropertyAll(context.colors.surface),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: BorderSide(color: context.tokens.glassBorder),
+          ),
+        ),
+      ),
+      menuChildren: [
+        _QuickSettingsPanel(
+          isDark: !_isLightThemeActive(context),
+          onDarkChanged: widget.onThemeModeChanged == null
+              ? null
+              : (dark) => widget.onThemeModeChanged!(
+                  dark ? PreferenceThemeMode.dark : PreferenceThemeMode.light,
+                ),
+          layout: _layout,
+          onLayoutChanged: layoutEnabled ? _changeLayout : null,
+          fontScale: widget.noteFontScale,
+          onFontScaleChanged: widget.onNoteFontScaleChanged,
+          onOpenAllSettings: widget.onPreferences == null
+              ? null
+              : () {
+                  controller.close();
+                  widget.onPreferences!();
+                },
+        ),
+      ],
+      builder: (context, menu, child) => IconButton(
+        key: const Key('open-quick-settings'),
+        tooltip: 'Settings',
+        visualDensity: VisualDensity.compact,
+        onPressed: widget.authBusy
+            ? null
+            : () => menu.isOpen ? menu.close() : menu.open(),
+        icon: Icon(Icons.settings_outlined, size: iconSize, color: iconColor),
+      ),
+    );
+  }
+
   void _openManageLabelsDialog() {
     showDialog<void>(
       context: context,
@@ -335,7 +926,75 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
-  void _openEditor({Note? note, required bool isWide}) {
+  void _openAiQaDialog({required bool isWide}) {
+    final combined = <Note>[..._allNotes, ..._sharedWithMeNotes];
+    showNoteAiQaDialog(
+      context,
+      candidateNotes: combined,
+      viewerUid: widget.user?.uid,
+      viewerEmail: widget.user?.email,
+      isNoteUnlocked: _isNoteUnlocked,
+      onOpenSourceNote: (sourceNote) {
+        _openEditor(note: sourceNote, isWide: isWide);
+      },
+    );
+  }
+
+  int get _unsyncedCount =>
+      _allNotes.where((n) => n.syncStatus != NoteSyncStatus.synced).length;
+
+  Future<void> _handleSyncNow() async {
+    if (_syncing) return;
+    setState(() {
+      _syncing = true;
+      _syncFeedback = null;
+    });
+    if (widget.onSynchronizeNotes != null) {
+      final error = await widget.onSynchronizeNotes!(
+        simulateOfflineFailure: _offlineMode,
+      );
+      if (!mounted) return;
+      setState(() {
+        _syncing = false;
+        _syncFeedback = error;
+      });
+      return;
+    }
+
+    // Standalone local mode fallback (R31).
+    setState(() {
+      _syncing = false;
+      if (_offlineMode) {
+        for (var i = 0; i < _localNotes.length; i++) {
+          final current = _localNotes[i];
+          if (current.syncStatus != NoteSyncStatus.synced) {
+            _localNotes[i] = current.copyWith(
+              syncStatus: NoteSyncStatus.failed,
+            );
+          }
+        }
+        _syncFeedback = 'Offline mode active: changes are saved locally and queued for sync.';
+      } else {
+        for (var i = 0; i < _localNotes.length; i++) {
+          final current = _localNotes[i];
+          if (current.syncStatus != NoteSyncStatus.synced) {
+            _localNotes[i] = current.copyWith(
+              syncStatus: NoteSyncStatus.synced,
+            );
+          }
+        }
+        _syncFeedback = null;
+      }
+    });
+    await _persistLocalNotes();
+  }
+
+  Future<void> _openEditor({Note? note, required bool isWide}) async {
+    if (note != null && note.isPasswordProtected && !_isNoteUnlocked(note)) {
+      final unlocked = await _ensureNoteUnlocked(note);
+      if (!unlocked || !mounted) return;
+    }
+
     if (isWide) {
       setState(() {
         _editorSessionCounter++;
@@ -347,7 +1006,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
       return;
     }
 
-    showModalBottomSheet<void>(
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -360,10 +1019,25 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           child: SingleChildScrollView(
             child: NoteEditorPanel(
               initialNote: note,
+              noteFontScale: widget.noteFontScale,
               availableLabels: _labels,
               debounceDuration: widget.editorDebounceDuration,
+              readOnly: _isReadOnlyForViewer(note),
+              sharedByEmail: note == null
+                  ? null
+                  : _viewerShareEntry(note)?.sharedByEmail,
+              sharedAt: note == null ? null : _viewerShareEntry(note)?.sharedAt,
               onSave: _saveNote,
               onDelete: (target) => _deleteNoteWithoutConfirm(target.id),
+              onEnablePassword: _handleEnableNotePassword,
+              onChangePassword: _handleChangeNotePassword,
+              onDisablePassword: _handleDisableNotePassword,
+              onLockSession: note == null
+                  ? null
+                  : () => _lockNoteSession(note.id),
+              onShareNote: _handleShareNote,
+              onUpdateSharePermission: _handleUpdateSharePermission,
+              onRevokeShare: _handleRevokeShare,
               onClose: () => Navigator.of(sheetContext).pop(),
             ),
           ),
@@ -389,7 +1063,10 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (isWide) _buildSidebar(context, isWide: isWide),
+                  if (isWide)
+                    RepaintBoundary(
+                      child: _buildSidebar(context, isWide: isWide),
+                    ),
                   Expanded(
                     flex: 7,
                     child: Center(
@@ -421,12 +1098,32 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                           child: NoteEditorPanel(
                             key: ValueKey(_editorSessionKey),
                             initialNote: _activeEditorNote,
+                            noteFontScale: widget.noteFontScale,
                             availableLabels: _labels,
                             embedded: true,
                             debounceDuration: widget.editorDebounceDuration,
+                            readOnly: _isReadOnlyForViewer(_activeEditorNote),
+                            sharedByEmail: _activeEditorNote == null
+                                ? null
+                                : _viewerShareEntry(_activeEditorNote!)
+                                      ?.sharedByEmail,
+                            sharedAt: _activeEditorNote == null
+                                ? null
+                                : _viewerShareEntry(_activeEditorNote!)
+                                      ?.sharedAt,
                             onSave: _saveNote,
                             onDelete: (target) =>
                                 _deleteNoteWithoutConfirm(target.id),
+                            onEnablePassword: _handleEnableNotePassword,
+                            onChangePassword: _handleChangeNotePassword,
+                            onDisablePassword: _handleDisableNotePassword,
+                            onLockSession: _activeEditorNote == null
+                                ? null
+                                : () => _lockNoteSession(_activeEditorNote!.id),
+                            onShareNote: _handleShareNote,
+                            onUpdateSharePermission:
+                                _handleUpdateSharePermission,
+                            onRevokeShare: _handleRevokeShare,
                             onClose: () => setState(() {
                               _activeEditorNote = null;
                               _isCreatingNew = false;
@@ -450,12 +1147,18 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           bottomNavigationBar: isWide
               ? null
               : NavigationBar(
-                  selectedIndex: _section == _NotesSection.all ? 0 : 1,
+                  selectedIndex: switch (_section) {
+                    _NotesSection.all => 0,
+                    _NotesSection.pinned => 1,
+                    _NotesSection.shared => 2,
+                  },
                   onDestinationSelected: (index) {
                     setState(() {
-                      _section = index == 0
-                          ? _NotesSection.all
-                          : _NotesSection.pinned;
+                      _section = switch (index) {
+                        0 => _NotesSection.all,
+                        1 => _NotesSection.pinned,
+                        _ => _NotesSection.shared,
+                      };
                       _selectedLabel = null;
                     });
                   },
@@ -469,6 +1172,11 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                       icon: Icon(Icons.push_pin_outlined),
                       selectedIcon: Icon(Icons.push_pin_rounded),
                       label: 'Pinned',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.people_alt_outlined),
+                      selectedIcon: Icon(Icons.people_alt_rounded),
+                      label: 'Shared with me',
                     ),
                   ],
                 ),
@@ -552,6 +1260,17 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             selected: _section == _NotesSection.pinned,
             onTap: () => setState(() {
               _section = _NotesSection.pinned;
+              _selectedLabel = null;
+            }),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          _SidebarItem(
+            key: const Key('nav-shared-with-me'),
+            icon: Icons.people_alt_outlined,
+            label: 'Shared with me',
+            selected: _section == _NotesSection.shared,
+            onTap: () => setState(() {
+              _section = _NotesSection.shared;
               _selectedLabel = null;
             }),
           ),
@@ -667,26 +1386,67 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                         ],
                       ),
                     ),
-                    Icon(
-                      Icons.manage_accounts_outlined,
-                      size: 18,
-                      color: tokens.textMuted,
-                    ),
-                    if (widget.onLogout != null)
-                      IconButton(
-                        key: const Key('logout'),
-                        tooltip: 'Đăng xuất',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: widget.authBusy ? null : widget.onLogout,
-                        icon: Icon(
-                          Icons.logout_rounded,
-                          size: 17,
-                          color: tokens.textMuted,
-                        ),
-                      ),
                   ],
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Container(
+            key: const Key('sidebar-account-actions'),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerHighest.withValues(alpha: 0.45),
+              borderRadius: AppRadius.pillAll,
+              border: Border.all(color: tokens.glassBorder),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                if (widget.onProfile != null)
+                  IconButton(
+                    key: const Key('open-profile'),
+                    tooltip: 'Profile',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.authBusy ? null : widget.onProfile,
+                    icon: Icon(
+                      Icons.person_outline_rounded,
+                      size: 19,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                if (_hasQuickSettings)
+                  _buildQuickSettingsButton(
+                    context,
+                    controller: _sidebarSettingsMenu,
+                    iconSize: 19,
+                    iconColor: colors.onSurfaceVariant,
+                  ),
+                if (widget.onChangePassword != null)
+                  IconButton(
+                    key: const Key('open-change-password'),
+                    tooltip: 'Change password',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.authBusy ? null : widget.onChangePassword,
+                    icon: Icon(
+                      Icons.lock_reset_rounded,
+                      size: 19,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                if (widget.onLogout != null)
+                  IconButton(
+                    key: const Key('logout'),
+                    tooltip: 'Đăng xuất',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.authBusy ? null : widget.onLogout,
+                    icon: Icon(
+                      Icons.logout_rounded,
+                      size: 19,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
@@ -704,10 +1464,21 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     final tokens = context.tokens;
     final title =
         _selectedLabel ??
-        (_section == _NotesSection.pinned ? 'Pinned notes' : 'MY NOTES');
-    final subtitle = _section == _NotesSection.pinned && _selectedLabel == null
-        ? 'Your most important thoughts, close at hand.'
-        : 'Organized folders and notes in one clean workspace.';
+        switch (_section) {
+          _NotesSection.all => 'MY NOTES',
+          _NotesSection.pinned => 'Pinned notes',
+          _NotesSection.shared => 'Shared with me',
+        };
+    final subtitle = _selectedLabel != null
+        ? 'Filtered notes in $_selectedLabel.'
+        : switch (_section) {
+            _NotesSection.all =>
+              'Organized folders and notes in one clean workspace.',
+            _NotesSection.pinned =>
+              'Your most important thoughts, close at hand.',
+            _NotesSection.shared =>
+              'Notes shared with your account, with real-time updates.',
+          };
 
     return Column(
       children: [
@@ -768,7 +1539,7 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
-              _buildSearchAndLayout(context),
+              _buildSearchAndLayout(context, isWide: isWide),
               const SizedBox(height: AppSpacing.xl),
               // MINO-style "Recent Folders" pastel cards on desktop layout
               if (isWide && _labels.isNotEmpty) ...[
@@ -776,6 +1547,17 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                 const SizedBox(height: AppSpacing.xl),
               ],
               _buildSectionHeading(context, notes.length),
+              if (_syncFeedback != null) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _syncFeedback!,
+                    key: const Key('notes-sync-feedback'),
+                    style: text.bodySmall?.copyWith(color: tokens.warning),
+                  ),
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               _buildLabelFilters(context),
               const SizedBox(height: AppSpacing.lg),
@@ -958,6 +1740,22 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               ),
             ),
           ),
+          if (widget.onChangePassword != null)
+            IconButton(
+              key: const Key('open-change-password'),
+              tooltip: 'Change password',
+              onPressed: widget.authBusy ? null : widget.onChangePassword,
+              icon: const Icon(Icons.lock_reset_rounded),
+            ),
+          if (widget.onProfile != null)
+            IconButton(
+              key: const Key('open-profile'),
+              tooltip: 'Profile',
+              onPressed: widget.authBusy ? null : widget.onProfile,
+              icon: const Icon(Icons.person_outline_rounded),
+            ),
+          if (_hasQuickSettings)
+            _buildQuickSettingsButton(context, controller: _headerSettingsMenu),
           if (widget.onLogout != null)
             OutlinedButton.icon(
               key: const Key('logout'),
@@ -1060,35 +1858,78 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     );
   }
 
-  Widget _buildSearchAndLayout(BuildContext context) {
-    return Row(
+  Widget _buildSearchAndLayout(BuildContext context, {required bool isWide}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: TextField(
-            key: const Key('notes-search-input'),
-            controller: _searchController,
-            onChanged: (value) => setState(() => _query = value),
-            decoration: InputDecoration(
-              hintText: 'Search your notes...',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _query.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Clear search',
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _query = '');
-                      },
-                      icon: const Icon(Icons.close_rounded),
-                    ),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('notes-search-input'),
+                controller: _searchController,
+                onChanged: (value) => setState(() => _query = value),
+                decoration: InputDecoration(
+                  hintText: 'Search your notes...',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear search',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            FilledButton.icon(
+              key: const Key('open-ai-qa-button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.charcoal,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm + 2,
+                ),
+              ),
+              onPressed: () => _openAiQaDialog(isWide: isWide),
+              icon: const Icon(Icons.auto_awesome_rounded, size: 17),
+              label: const Text('Ask AI'),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            _LayoutToggle(
+              layout: _layout,
+              enabled:
+                  widget.viewModeEnabled &&
+                  (widget.viewMode == null || widget.onViewModeChanged != null),
+              onChanged: (layout) {
+                if (widget.onViewModeChanged != null) {
+                  widget.onViewModeChanged!(
+                    layout == _NotesLayout.grid
+                        ? NotesViewMode.grid
+                        : NotesViewMode.list,
+                  );
+                } else {
+                  setState(() => _localLayout = layout);
+                }
+              },
+            ),
+          ],
+        ),
+        if (widget.preferencesError != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              widget.preferencesError!,
+              style: TextStyle(color: context.colors.error),
             ),
           ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        _LayoutToggle(
-          layout: _layout,
-          onChanged: (layout) => setState(() => _layout = layout),
-        ),
+        ],
       ],
     );
   }
@@ -1140,6 +1981,42 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
                 onPressed: () => setState(() => _selectedLabel = null),
                 icon: const Icon(Icons.close_rounded, size: 16),
                 label: const Text('Clear filter'),
+              ),
+            FilterChip(
+              key: const Key('toggle-offline-mode-button'),
+              label: Text(_offlineMode ? 'Offline mode' : 'Online'),
+              selected: _offlineMode,
+              avatar: Icon(
+                _offlineMode
+                    ? Icons.cloud_off_rounded
+                    : Icons.cloud_done_outlined,
+                size: 16,
+              ),
+              onSelected: (value) {
+                setState(() {
+                  _offlineMode = value;
+                  _syncFeedback = value
+                      ? 'Offline mode active: edits save locally first.'
+                      : null;
+                });
+                if (!value && _unsyncedCount > 0) {
+                  unawaited(_handleSyncNow());
+                }
+              },
+            ),
+            if (_unsyncedCount > 0 || _offlineMode || _syncFeedback != null)
+              TextButton.icon(
+                key: const Key('sync-notes-now-button'),
+                onPressed: _syncing ? null : _handleSyncNow,
+                icon: Icon(
+                  _syncing ? Icons.sync_rounded : Icons.cloud_sync_outlined,
+                  size: 16,
+                ),
+                label: Text(
+                  _unsyncedCount > 0
+                      ? 'Sync now ($_unsyncedCount)'
+                      : 'Sync now',
+                ),
               ),
             TextButton.icon(
               key: const Key('manage-labels-button'),
@@ -1202,15 +2079,22 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
             crossAxisCount: columns,
             mainAxisSpacing: AppSpacing.lg,
             crossAxisSpacing: AppSpacing.lg,
-            mainAxisExtent: isCompact ? 236 : 254,
+            mainAxisExtent:
+                (isCompact ? 236 : 254) +
+                (widget.noteFontScale - 1).clamp(0.0, 0.5).toDouble() * 180,
           ),
           itemBuilder: (context, index) {
             final note = notes[index];
-            return _NoteCard(
-              note: note,
-              onTap: () => _openEditor(note: note, isWide: isWide),
-              onTogglePin: () => _togglePin(note),
-              onDelete: () => _confirmAndDelete(note),
+            return RepaintBoundary(
+              child: _NoteCard(
+                note: note,
+                isUnlocked: _isNoteUnlocked(note),
+                viewerShareEntry: _viewerShareEntry(note),
+                fontScale: widget.noteFontScale,
+                onTap: () => _openEditor(note: note, isWide: isWide),
+                onTogglePin: () => _togglePin(note),
+                onDelete: () => _confirmAndDelete(note),
+              ),
             );
           },
         );
@@ -1222,11 +2106,16 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     return Column(
       children: [
         for (final note in notes) ...[
-          _NoteListTile(
-            note: note,
-            onTap: () => _openEditor(note: note, isWide: isWide),
-            onTogglePin: () => _togglePin(note),
-            onDelete: () => _confirmAndDelete(note),
+          RepaintBoundary(
+            child: _NoteListTile(
+              note: note,
+              isUnlocked: _isNoteUnlocked(note),
+              viewerShareEntry: _viewerShareEntry(note),
+              fontScale: widget.noteFontScale,
+              onTap: () => _openEditor(note: note, isWide: isWide),
+              onTogglePin: () => _togglePin(note),
+              onDelete: () => _confirmAndDelete(note),
+            ),
           ),
           const SizedBox(height: AppSpacing.sm + 2),
         ],
@@ -1257,6 +2146,14 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
         icon: Icons.push_pin_outlined,
         title: 'Nothing pinned yet',
         message: 'Pin a note to keep it close at hand.',
+      );
+    }
+
+    if (_section == _NotesSection.shared) {
+      return const EmptyStateView(
+        icon: Icons.people_alt_outlined,
+        title: 'No notes shared with you yet',
+        message: 'When teammates share notes with your email address, they will appear here.',
       );
     }
 
@@ -1410,6 +2307,7 @@ class _NewFolderActionCard extends StatelessWidget {
 
 class _SidebarItem extends StatelessWidget {
   const _SidebarItem({
+    super.key,
     required this.icon,
     required this.label,
     required this.selected,
@@ -1483,10 +2381,15 @@ class _SidebarItem extends StatelessWidget {
 }
 
 class _LayoutToggle extends StatelessWidget {
-  const _LayoutToggle({required this.layout, required this.onChanged});
+  const _LayoutToggle({
+    required this.layout,
+    required this.onChanged,
+    this.enabled = true,
+  });
 
   final _NotesLayout layout;
   final ValueChanged<_NotesLayout> onChanged;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -1505,13 +2408,13 @@ class _LayoutToggle extends StatelessWidget {
             icon: Icons.grid_view_rounded,
             label: 'Grid view',
             selected: layout == _NotesLayout.grid,
-            onTap: () => onChanged(_NotesLayout.grid),
+            onTap: enabled ? () => onChanged(_NotesLayout.grid) : null,
           ),
           _LayoutButton(
             icon: Icons.view_agenda_outlined,
             label: 'List view',
             selected: layout == _NotesLayout.list,
-            onTap: () => onChanged(_NotesLayout.list),
+            onTap: enabled ? () => onChanged(_NotesLayout.list) : null,
           ),
         ],
       ),
@@ -1530,7 +2433,7 @@ class _LayoutButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1599,12 +2502,18 @@ class _LabelFilterChip extends StatelessWidget {
 class _NoteCard extends StatelessWidget {
   const _NoteCard({
     required this.note,
+    required this.isUnlocked,
+    this.fontScale = 1,
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
+    this.viewerShareEntry,
   });
 
   final Note note;
+  final bool isUnlocked;
+  final NoteShareEntry? viewerShareEntry;
+  final double fontScale;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
@@ -1616,6 +2525,8 @@ class _NoteCard extends StatelessWidget {
     final cardFill = tokens.noteCardFill(note.colorIndex);
     const inkColor = AppColors.charcoal;
     final subInkColor = AppColors.charcoal.withValues(alpha: 0.68);
+    final isLockedContent = note.isPasswordProtected && !isUnlocked;
+    final isSharedNote = note.isShared || viewerShareEntry != null;
 
     return Material(
       color: cardFill,
@@ -1648,6 +2559,38 @@ class _NoteCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (isSharedNote)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Tooltip(
+                        message: viewerShareEntry != null
+                            ? 'Shared with you (${viewerShareEntry!.permission.label})'
+                            : 'Shared with ${note.shares.length} ${note.shares.length == 1 ? 'person' : 'people'}',
+                        child: Icon(
+                          Icons.people_alt_rounded,
+                          key: Key('note-shared-indicator-${note.id}'),
+                          size: 16,
+                          color: inkColor,
+                        ),
+                      ),
+                    ),
+                  if (note.isPasswordProtected)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Tooltip(
+                        message: isLockedContent
+                            ? 'Password-protected (Locked)'
+                            : 'Password-protected (Unlocked)',
+                        child: Icon(
+                          isLockedContent
+                              ? Icons.lock_rounded
+                              : Icons.lock_open_rounded,
+                          key: Key('note-lock-indicator-${note.id}'),
+                          size: 16,
+                          color: inkColor,
+                        ),
+                      ),
+                    ),
                   if (note.status != NoteStatus.normal)
                     Padding(
                       padding: const EdgeInsets.only(right: 6),
@@ -1756,7 +2699,7 @@ class _NoteCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: text.titleLarge?.copyWith(
-                        fontSize: 18,
+                        fontSize: 17 * fontScale,
                         fontWeight: FontWeight.w700,
                         color: inkColor,
                         height: 1.25,
@@ -1781,16 +2724,86 @@ class _NoteCard extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.sm + 2),
               Expanded(
-                child: Text(
-                  note.content,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.bodySmall?.copyWith(
-                    color: subInkColor,
-                    height: 1.55,
-                  ),
-                ),
+                child: isLockedContent
+                    ? Row(
+                        key: Key('note-locked-placeholder-${note.id}'),
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.lock_outline_rounded,
+                            size: 15,
+                            color: subInkColor,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Protected note — enter password to view',
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.bodySmall?.copyWith(
+                                color: subInkColor,
+                                fontSize:
+                                    (text.bodySmall?.fontSize ?? 12) *
+                                    fontScale,
+                                fontStyle: FontStyle.italic,
+                                height: 1.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : Text(
+                        note.content,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.bodySmall?.copyWith(
+                          color: subInkColor,
+                          fontSize:
+                              (text.bodySmall?.fontSize ?? 12) * fontScale,
+                          height: 1.55,
+                        ),
+                      ),
               ),
+              if (viewerShareEntry != null) ...[
+                const SizedBox(height: 6),
+                Row(
+                  key: Key('note-shared-meta-${note.id}'),
+                  children: [
+                    Container(
+                      key: Key('note-share-permission-badge-${note.id}'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: inkColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        viewerShareEntry!.permission.label,
+                        style: text.labelSmall?.copyWith(
+                          color: inkColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'By ${viewerShareEntry!.sharedByEmail} • ${_formatShortDate(viewerShareEntry!.sharedAt)}',
+                        key: Key('note-shared-by-${note.id}'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.labelSmall?.copyWith(
+                          color: subInkColor,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: AppSpacing.sm),
               Row(
                 children: [
@@ -1829,12 +2842,18 @@ class _NoteCard extends StatelessWidget {
 class _NoteListTile extends StatelessWidget {
   const _NoteListTile({
     required this.note,
+    required this.isUnlocked,
+    this.fontScale = 1,
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
+    this.viewerShareEntry,
   });
 
   final Note note;
+  final bool isUnlocked;
+  final NoteShareEntry? viewerShareEntry;
+  final double fontScale;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
@@ -1846,6 +2865,8 @@ class _NoteListTile extends StatelessWidget {
     final cardFill = tokens.noteCardFill(note.colorIndex);
     const inkColor = AppColors.charcoal;
     final subInkColor = AppColors.charcoal.withValues(alpha: 0.68);
+    final isLockedContent = note.isPasswordProtected && !isUnlocked;
+    final isSharedNote = note.isShared || viewerShareEntry != null;
 
     return Material(
       color: cardFill,
@@ -1872,8 +2893,10 @@ class _NoteListTile extends StatelessWidget {
                   color: inkColor,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(
-                  Icons.edit_outlined,
+                child: Icon(
+                  isLockedContent
+                      ? Icons.lock_outline_rounded
+                      : Icons.edit_outlined,
                   color: Colors.white,
                   size: 15,
                 ),
@@ -1893,11 +2916,34 @@ class _NoteListTile extends StatelessWidget {
                             style: text.titleMedium?.copyWith(
                               fontWeight: FontWeight.w700,
                               color: inkColor,
+                              fontSize:
+                                  (text.titleMedium?.fontSize ?? 15) *
+                                  fontScale,
                             ),
                           ),
                         ),
                         const SizedBox(width: 6),
                         NoteSyncStatusIndicator(status: note.syncStatus),
+                        if (isSharedNote) ...[
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.people_alt_rounded,
+                            key: Key('note-tile-shared-indicator-${note.id}'),
+                            color: inkColor,
+                            size: 15,
+                          ),
+                        ],
+                        if (note.isPasswordProtected) ...[
+                          const SizedBox(width: 6),
+                          Icon(
+                            isLockedContent
+                                ? Icons.lock_rounded
+                                : Icons.lock_open_rounded,
+                            key: Key('note-tile-lock-indicator-${note.id}'),
+                            color: inkColor,
+                            size: 15,
+                          ),
+                        ],
                         if (note.status != NoteStatus.normal) ...[
                           const SizedBox(width: 6),
                           Container(
@@ -1968,11 +3014,31 @@ class _NoteListTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      note.content,
+                      isLockedContent
+                          ? 'Protected note — enter password to view'
+                          : note.content,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: text.bodySmall?.copyWith(color: subInkColor),
+                      style: text.bodySmall?.copyWith(
+                        color: subInkColor,
+                        fontSize: (text.bodySmall?.fontSize ?? 12) * fontScale,
+                        fontStyle: isLockedContent
+                            ? FontStyle.italic
+                            : FontStyle.normal,
+                      ),
                     ),
+                    if (viewerShareEntry != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '${viewerShareEntry!.permission.label} • Shared by ${viewerShareEntry!.sharedByEmail} (${_formatShortDate(viewerShareEntry!.sharedAt)})',
+                        key: Key('note-tile-shared-by-${note.id}'),
+                        style: text.labelSmall?.copyWith(
+                          color: subInkColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                     if (note.labels.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Wrap(

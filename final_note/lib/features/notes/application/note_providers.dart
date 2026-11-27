@@ -47,6 +47,43 @@ final accountNotesStreamProvider = StreamProvider.autoDispose<List<Note>>((
   return controller.stream;
 });
 
+/// Watches notes shared WITH the active [AccountSession] in real time (R25, R26).
+final accountSharedNotesStreamProvider = StreamProvider.autoDispose<List<Note>>(
+  (ref) {
+    final session = ref.watch(accountSessionProvider);
+    final user = ref.watch(authenticatedUserProvider);
+    if (session == null || !session.isActive) {
+      return const Stream<List<Note>>.empty();
+    }
+    final repository = ref.watch(noteRepositoryProvider);
+    if (user?.email != null) {
+      repository.registerAccountIdentity(uid: session.uid, email: user!.email!);
+    }
+    final controller = StreamController<List<Note>>();
+    final subscription = repository
+        .watchSharedWithMe(session.uid, email: user?.email)
+        .listen(
+          (notes) {
+            if (session.isActive && !controller.isClosed) {
+              controller.add(notes);
+            }
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (session.isActive && !controller.isClosed) {
+              controller.addError(error, stackTrace);
+            }
+          },
+        );
+
+    ref.onDispose(() {
+      subscription.cancel();
+      controller.close();
+    });
+
+    return controller.stream;
+  },
+);
+
 /// Watches the label catalog for the active [AccountSession] (R20).
 final accountLabelsStreamProvider = StreamProvider.autoDispose<List<String>>((
   ref,
@@ -296,6 +333,269 @@ class NoteActions extends Notifier<NoteActionState> {
         state = state.copyWith(error: 'Could not delete label.');
       }
       return false;
+    }
+  }
+
+  Future<Note?> enableNotePassword(
+    String noteId, {
+    required String password,
+    required String confirmPassword,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return null;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final updated = await repository.enableNotePassword(
+        session.uid,
+        noteId,
+        password: password,
+        confirmPassword: confirmPassword,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(clearError: true);
+      return updated;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return null;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not enable note password.');
+      }
+      return null;
+    }
+  }
+
+  Future<bool> verifyNotePassword(String noteId, String password) async {
+    final session = _activeSession();
+    if (session == null) return false;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final ok = await repository.verifyNotePassword(
+        session.uid,
+        noteId,
+        password,
+      );
+      if (!ref.mounted || !session.isActive) return false;
+      state = state.copyWith(clearError: true);
+      return ok;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return false;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not verify note password.');
+      }
+      return false;
+    }
+  }
+
+  Future<Note?> changeNotePassword(
+    String noteId, {
+    required String currentPassword,
+    required String newPassword,
+    required String confirmNewPassword,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return null;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final updated = await repository.changeNotePassword(
+        session.uid,
+        noteId,
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+        confirmNewPassword: confirmNewPassword,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(clearError: true);
+      return updated;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return null;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not change note password.');
+      }
+      return null;
+    }
+  }
+
+  Future<Note?> disableNotePassword(
+    String noteId, {
+    required String currentPassword,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return null;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final updated = await repository.disableNotePassword(
+        session.uid,
+        noteId,
+        currentPassword: currentPassword,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(clearError: true);
+      return updated;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return null;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not disable note password.');
+      }
+      return null;
+    }
+  }
+
+  bool isNoteUnlocked(String noteId) {
+    final session = _activeSession();
+    if (session == null) return false;
+    return ref.read(noteRepositoryProvider).isNoteUnlocked(session.uid, noteId);
+  }
+
+  void lockNoteSession(String noteId) {
+    final session = _activeSession();
+    if (session == null) return;
+    ref.read(noteRepositoryProvider).lockNoteSession(session.uid, noteId);
+  }
+
+  Future<Note?> shareNote(
+    String noteId, {
+    required String recipientEmail,
+    required NoteSharePermission permission,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return null;
+    final user = ref.read(authenticatedUserProvider);
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final updated = await repository.shareNote(
+        session.uid,
+        noteId,
+        recipientEmail: recipientEmail,
+        permission: permission,
+        ownerEmail: user?.email,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(clearError: true);
+      return updated;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return null;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not share note.');
+      }
+      return null;
+    }
+  }
+
+  Future<Note?> updateSharePermission(
+    String noteId, {
+    required String recipientEmail,
+    required NoteSharePermission permission,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return null;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final updated = await repository.updateSharePermission(
+        session.uid,
+        noteId,
+        recipientEmail: recipientEmail,
+        permission: permission,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(clearError: true);
+      return updated;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return null;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not update share permission.');
+      }
+      return null;
+    }
+  }
+
+  Future<Note?> revokeShare(
+    String noteId, {
+    required String recipientEmail,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return null;
+
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      final updated = await repository.revokeShare(
+        session.uid,
+        noteId,
+        recipientEmail: recipientEmail,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(clearError: true);
+      return updated;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: error.message);
+      }
+      return null;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(error: 'Could not revoke share access.');
+      }
+      return null;
+    }
+  }
+
+  Future<String?> synchronizeNotes({
+    bool simulateOfflineFailure = false,
+  }) async {
+    final session = _activeSession();
+    if (session == null) return 'Invalid session.';
+
+    state = state.copyWith(busy: true, clearError: true);
+    try {
+      final repository = ref.read(noteRepositoryProvider);
+      await repository.synchronizeNotes(
+        session.uid,
+        simulateOfflineFailure: simulateOfflineFailure,
+      );
+      if (!ref.mounted || !session.isActive) return null;
+      state = state.copyWith(busy: false, clearError: true);
+      return null;
+    } on NoteFailure catch (error) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(busy: false, error: error.message);
+      }
+      return error.message;
+    } catch (_) {
+      if (ref.mounted && session.isActive) {
+        state = state.copyWith(
+          busy: false,
+          error: 'Could not synchronize notes.',
+        );
+      }
+      return 'Could not synchronize notes.';
     }
   }
 

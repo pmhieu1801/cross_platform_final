@@ -65,16 +65,18 @@ class BrandBadge extends StatelessWidget {
         ),
         if (showText) ...[
           const SizedBox(width: AppSpacing.sm + 2),
-          Text(
-            'NoteFlow',
-            style:
-                textStyle ??
-                text.titleLarge?.copyWith(
-                  fontFamily: AppTypography.display,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.4,
-                  color: colors.onSurface,
-                ),
+          Flexible(
+            child: Text(
+              'NoteFlow',
+              style:
+                  textStyle ??
+                  text.titleLarge?.copyWith(
+                    fontFamily: AppTypography.display,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.4,
+                    color: colors.onSurface,
+                  ),
+            ),
           ),
         ],
       ],
