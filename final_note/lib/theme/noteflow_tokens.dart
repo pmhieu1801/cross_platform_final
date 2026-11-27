@@ -64,10 +64,10 @@ class NoteFlowTokens extends ThemeExtension<NoteFlowTokens> {
   /// Subtle formal neutral shadow (replaces neon colored glow).
   List<BoxShadow> glow(Color color, {double strength = 1}) => [
     BoxShadow(
-      color: shadowColor.withValues(alpha: (0.06 * strength).clamp(0.0, 0.16)),
-      blurRadius: 16,
-      spreadRadius: -4,
-      offset: const Offset(0, 6),
+      color: shadowColor.withValues(alpha: (0.05 * strength).clamp(0.0, 0.14)),
+      blurRadius: 10,
+      spreadRadius: -2,
+      offset: const Offset(0, 4),
     ),
   ];
 
@@ -75,9 +75,9 @@ class NoteFlowTokens extends ThemeExtension<NoteFlowTokens> {
   List<BoxShadow> get elevation => [
     BoxShadow(
       color: shadowColor,
-      blurRadius: 24,
-      spreadRadius: -8,
-      offset: const Offset(0, 10),
+      blurRadius: 12,
+      spreadRadius: -4,
+      offset: const Offset(0, 6),
     ),
   ];
 

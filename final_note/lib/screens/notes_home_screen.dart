@@ -1063,7 +1063,10 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (isWide) _buildSidebar(context, isWide: isWide),
+                  if (isWide)
+                    RepaintBoundary(
+                      child: _buildSidebar(context, isWide: isWide),
+                    ),
                   Expanded(
                     flex: 7,
                     child: Center(
@@ -2082,14 +2085,16 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
           ),
           itemBuilder: (context, index) {
             final note = notes[index];
-            return _NoteCard(
-              note: note,
-              isUnlocked: _isNoteUnlocked(note),
-              viewerShareEntry: _viewerShareEntry(note),
-              fontScale: widget.noteFontScale,
-              onTap: () => _openEditor(note: note, isWide: isWide),
-              onTogglePin: () => _togglePin(note),
-              onDelete: () => _confirmAndDelete(note),
+            return RepaintBoundary(
+              child: _NoteCard(
+                note: note,
+                isUnlocked: _isNoteUnlocked(note),
+                viewerShareEntry: _viewerShareEntry(note),
+                fontScale: widget.noteFontScale,
+                onTap: () => _openEditor(note: note, isWide: isWide),
+                onTogglePin: () => _togglePin(note),
+                onDelete: () => _confirmAndDelete(note),
+              ),
             );
           },
         );
@@ -2101,14 +2106,16 @@ class _NotesHomeScreenState extends State<NotesHomeScreen> {
     return Column(
       children: [
         for (final note in notes) ...[
-          _NoteListTile(
-            note: note,
-            isUnlocked: _isNoteUnlocked(note),
-            viewerShareEntry: _viewerShareEntry(note),
-            fontScale: widget.noteFontScale,
-            onTap: () => _openEditor(note: note, isWide: isWide),
-            onTogglePin: () => _togglePin(note),
-            onDelete: () => _confirmAndDelete(note),
+          RepaintBoundary(
+            child: _NoteListTile(
+              note: note,
+              isUnlocked: _isNoteUnlocked(note),
+              viewerShareEntry: _viewerShareEntry(note),
+              fontScale: widget.noteFontScale,
+              onTap: () => _openEditor(note: note, isWide: isWide),
+              onTogglePin: () => _togglePin(note),
+              onDelete: () => _confirmAndDelete(note),
+            ),
           ),
           const SizedBox(height: AppSpacing.sm + 2),
         ],

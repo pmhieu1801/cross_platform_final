@@ -17,6 +17,7 @@ class NoteFlowApp extends ConsumerWidget {
     debugShowCheckedModeBanner: false,
     theme: AppTheme.light,
     darkTheme: AppTheme.dark,
+    themeAnimationDuration: Duration.zero,
     themeMode:
         themeMode ??
         switch (ref.watch(effectivePreferencesProvider).themeMode) {
