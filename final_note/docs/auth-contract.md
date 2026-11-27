@@ -61,6 +61,14 @@ API/cách dùng mới là implementation M1 chờ nhóm review, không phải ow
 
 ## Logout và ranh giới tài khoản
 
+### Preferences W2-06 — implementation chờ review M2
+
+`accountPreferencesProvider` đọc repository local theo account lease; consumer phải dùng `effectivePreferencesProvider` để không lấy stale value A khi B/checking/error đang tải. Model v1: themeMode (dark/light/system, default dark), noteFontScale (0.85–1.5, default 1), notesViewMode (grid/list, default grid). Key `noteflow_user_preferences_v1_<base64url(uid)>`, JSON schemaVersion 1; không chứa credential hoặc email. Lưu riêng từng thiết bị/origin, giữ key A sau logout, không cloud sync.
+
+`/preferences` private, draft keyed UID, Save chỉ công bố sau write thành công; lỗi giữ draft/giá trị cũ, corrupt data dùng defaults + warning mà không tự overwrite. Repository FIFO theo UID, load đợi pending writes; callback save phải còn đúng lease. Read failure không được giả thành read thành công. Reset ghi defaults chỉ key account đang dùng.
+
+MaterialApp đọc theme qua safe provider. Home truyền viewMode/onViewModeChanged/viewModeEnabled/noteFontScale/preferencesError/onPreferences vào NotesHomeScreen; standalone preview vẫn có local layout. Toggle production lưu qua cùng controller, error hiện ngay gần control. Card/list/editor nhận font scale; không đổi Notes CRUD/autosave/storage. Cách nối này đã có tests consumer nhưng vẫn chờ M2 signoff, không tự coi merge hoặc code hiện có là contract nhóm đã chốt. Xem [evidence W2-06](m1-week2-preferences.md).
+
 ### Chuẩn bị avatar W2-05, chưa có storage implementation
 
 Owner chọn giữ Spark ngày 22/11/2026, Console xác nhận Storage yêu cầu Blaze. `AvatarRepository` trong domain chỉ định upload/deleteUploaded với expectedUid và receipt ownerUid/storageKey/HTTPS photoUrl. Chưa có provider production, picker, Auth photoURL setter hoặc schema/rules mới. `AvatarImageValidator` chuẩn bị JPEG/PNG tối đa 2 MiB, mỗi chiều tối đa 4096, kiểm MIME/chữ ký/dimension và decode thật; các số này là lựa chọn triển khai chờ review. Bytes được copy và giữ immutable. Client validation không thay enforcement backend.

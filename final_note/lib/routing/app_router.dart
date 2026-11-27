@@ -9,6 +9,7 @@ import '../features/auth/presentation/forgot_password_screen.dart';
 import '../features/auth/presentation/profile_screen.dart';
 import '../features/auth/presentation/session_screen.dart';
 import '../features/home/home_screen.dart';
+import '../features/preferences/presentation/preferences_screen.dart';
 import 'session_guard.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -45,6 +46,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(path: AppRoutes.home, builder: (_, _) => const HomeScreen()),
+      GoRoute(
+        path: AppRoutes.preferences,
+        builder: (_, _) => Consumer(
+          builder: (context, ref, child) {
+            final uid = ref.watch(authenticatedUidProvider);
+            return uid == null
+                ? const SessionScreen()
+                : PreferencesScreen(key: ValueKey(uid), uid: uid);
+          },
+        ),
+      ),
       GoRoute(
         path: AppRoutes.profile,
         builder: (_, _) => Consumer(

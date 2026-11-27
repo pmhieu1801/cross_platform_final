@@ -58,10 +58,12 @@ class NoteEditorPanel extends StatefulWidget {
     this.onClose,
     this.debounceDuration = const Duration(milliseconds: 400),
     this.embedded = false,
+    this.noteFontScale = 1,
   });
 
   /// `null` when creating a new note; non-null when editing an existing note.
   final Note? initialNote;
+  final double noteFontScale;
 
   /// All known labels for this account so the user can toggle them on/off.
   final List<String> availableLabels;
@@ -458,6 +460,8 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
             controller: _titleController,
             textInputAction: TextInputAction.next,
             style: text.headlineSmall?.copyWith(
+              fontSize:
+                  (text.headlineSmall?.fontSize ?? 22) * widget.noteFontScale,
               fontFamily: AppTypography.display,
               fontWeight: FontWeight.w700,
             ),
@@ -480,7 +484,10 @@ class _NoteEditorPanelState extends State<NoteEditorPanel> {
                 maxLines: null,
                 minLines: 5,
                 keyboardType: TextInputType.multiline,
-                style: text.bodyLarge,
+                style: text.bodyLarge?.copyWith(
+                  fontSize:
+                      (text.bodyLarge?.fontSize ?? 16) * widget.noteFontScale,
+                ),
                 decoration: const InputDecoration(
                   hintText: 'Start writing your thoughts...',
                   border: InputBorder.none,

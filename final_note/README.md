@@ -84,6 +84,8 @@ Outputs ignored: `build/web/`, `build/app/outputs/flutter-apk/app-debug.apk`. AP
 
 ## Bàn giao
 
+- [Settings W2-06 — local theo UID, theme/font/Grid-List và evidence](docs/m1-week2-preferences.md)
+
 - [Chuẩn bị avatar W2-05 — upload đang chờ storage](docs/m1-week2-avatar-preparation.md)
 
 - [Hồ sơ W2-04: luồng, test và giới hạn nghiệm thu](docs/m1-week2-profile.md)
