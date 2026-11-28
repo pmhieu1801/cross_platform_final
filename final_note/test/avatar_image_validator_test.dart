@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:final_note/features/auth/application/avatar_image_validator.dart';
 import 'package:final_note/features/auth/domain/avatar_repository.dart';
@@ -91,6 +92,32 @@ void main() {
     );
     await expectLater(
       validator.validate(avatarJpeg(), declaredMimeType: 'application/pdf'),
+      failsWith('không khớp'),
+    );
+  });
+
+  test('normalizes portrait images within both dimensions', () async {
+    final recorder = ui.PictureRecorder();
+    ui.Canvas(recorder).drawColor(const ui.Color(0xFF004080), ui.BlendMode.src);
+    final picture = recorder.endRecording();
+    final source = await picture.toImage(32, 1024);
+    picture.dispose();
+    final data = await source.toByteData(format: ui.ImageByteFormat.png);
+    source.dispose();
+    final bytes = data!.buffer.asUint8List(
+      data.offsetInBytes,
+      data.lengthInBytes,
+    );
+
+    final thumbnail = await validator.normalizeForAvatar(
+      bytes,
+      maxDimension: 256,
+    );
+    expect(thumbnail.width, 8);
+    expect(thumbnail.height, 256);
+    expect(thumbnail.contentType, 'image/png');
+    await expectLater(
+      validator.normalizeForAvatar(bytes, declaredMimeType: 'image/jpeg'),
       failsWith('không khớp'),
     );
   });

@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /accountAvatars/{uid} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+
+      function validAvatar() {
+        let avatar = request.resource.data;
+        return (avatar.keys().hasOnly(['active']) && avatar.active == false)
+          || (avatar.keys().hasOnly(['active', 'png'])
+              && avatar.active == true
+              && avatar.png is bytes
+              && avatar.png.size() > 0
+              && avatar.png.size() <= 409600);
+      }
+
+      allow get: if isOwner();
+      allow create, update: if isOwner() && validAvatar();
+    }
+  }
+}

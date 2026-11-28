@@ -1,0 +1,4 @@
+storeFile=C:/path/to/noteflow-upload.jks
+storePassword=replace-locally
+keyAlias=noteflow
+keyPassword=replace-locally

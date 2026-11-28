@@ -1,3 +1,4 @@
+import 'package:final_note/features/auth/data/local_avatar_repository.dart';
 import 'package:final_note/features/auth/domain/auth_repository.dart';
 import 'package:final_note/theme/theme.dart';
 import 'package:final_note/utils/validators.dart';
@@ -130,5 +131,33 @@ void main() {
         expect(loggedOut, isTrue);
       },
     );
+
+    testWidgets('Account settings keeps the avatar when reset fails', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          AccountSettingsDialog(
+            user: const AuthUser(
+              uid: 'owner',
+              email: 'owner@example.test',
+              displayName: 'Owner',
+              emailVerified: true,
+            ),
+            avatarBytes: LocalAvatarRepository.sampleAvatars.first.bytes,
+            onPickAvatar: (_) async => null,
+            onRemoveAvatar: () async => 'Reset could not be saved.',
+          ),
+        ),
+      );
+
+      final reset = find.byKey(const Key('account-dialog-reset-avatar'));
+      await tester.tap(reset);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reset could not be saved.'), findsOneWidget);
+      expect(find.text('Đã khôi phục ảnh đại diện mặc định.'), findsNothing);
+      expect(reset, findsOneWidget);
+    });
   });
 }

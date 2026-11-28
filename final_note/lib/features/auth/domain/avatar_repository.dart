@@ -56,3 +56,14 @@ abstract interface class AvatarRepository {
     required AvatarUploadReceipt receipt,
   });
 }
+
+/// The avatar stored for the current Firebase account.
+abstract interface class SyncedAvatarStore {
+  /// An uninitialized record can fall back to an avatar from an older install.
+  /// An initialized record without an image represents an explicit reset.
+  Future<({bool initialized, AvatarImage? image})> load(String uid);
+
+  Future<AvatarImage> save(String uid, AvatarImage image);
+
+  Future<void> reset(String uid);
+}

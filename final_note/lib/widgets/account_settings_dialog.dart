@@ -27,7 +27,7 @@ class AccountSettingsDialog extends StatefulWidget {
   final AuthUser? user;
   final Uint8List? avatarBytes;
   final Future<String?> Function(Uint8List bytes)? onPickAvatar;
-  final Future<void> Function()? onRemoveAvatar;
+  final Future<String?> Function()? onRemoveAvatar;
   final bool authBusy;
   final VoidCallback? onLogout;
   final Future<String?> Function(String displayName, String email)?
@@ -51,13 +51,15 @@ class _AccountSettingsDialogState extends State<AccountSettingsDialog> {
 
   int _selectedTab = 0; // 0: Profile & Email, 1: Security / Password
   bool _saving = false;
+  bool _avatarBusy = false;
   String? _statusMessage;
   bool _isError = false;
   PasswordStrength _strength = PasswordStrength.empty;
   late Uint8List? _localAvatarBytes = widget.avatarBytes;
 
   Future<void> _handlePickAvatar() async {
-    if (widget.onPickAvatar == null) return;
+    if (widget.onPickAvatar == null || _avatarBusy) return;
+    setState(() => _avatarBusy = true);
     try {
       final files = await FilePicker.pickFiles(
         type: FileType.custom,
@@ -80,7 +82,28 @@ class _AccountSettingsDialogState extends State<AccountSettingsDialog> {
         _isError = true;
         _statusMessage = 'Không thể mở tệp ảnh. Hãy thử lại.';
       });
+    } finally {
+      if (mounted) setState(() => _avatarBusy = false);
     }
+  }
+
+  Future<void> _handleRemoveAvatar() async {
+    final remove = widget.onRemoveAvatar;
+    if (remove == null || _avatarBusy) return;
+    setState(() => _avatarBusy = true);
+    String? error;
+    try {
+      error = await remove();
+    } catch (_) {
+      error = 'Không thể xóa ảnh đại diện. Hãy thử lại.';
+    }
+    if (!mounted) return;
+    setState(() {
+      _avatarBusy = false;
+      _isError = error != null;
+      if (error == null) _localAvatarBytes = null;
+      _statusMessage = error ?? 'Đã khôi phục ảnh đại diện mặc định.';
+    });
   }
 
   @override
@@ -242,7 +265,7 @@ class _AccountSettingsDialogState extends State<AccountSettingsDialog> {
                                   ),
                                   minimumSize: const Size(0, 28),
                                 ),
-                                onPressed: _handlePickAvatar,
+                                onPressed: _avatarBusy ? null : _handlePickAvatar,
                                 icon: const Icon(
                                   Icons.photo_camera_outlined,
                                   size: 15,
@@ -260,16 +283,9 @@ class _AccountSettingsDialogState extends State<AccountSettingsDialog> {
                                     ),
                                     minimumSize: const Size(0, 28),
                                   ),
-                                  onPressed: () async {
-                                    await widget.onRemoveAvatar!();
-                                    if (!mounted) return;
-                                    setState(() {
-                                      _localAvatarBytes = null;
-                                      _isError = false;
-                                      _statusMessage =
-                                          'Đã khôi phục ảnh đại diện mặc định.';
-                                    });
-                                  },
+                                  onPressed: _avatarBusy
+                                      ? null
+                                      : _handleRemoveAvatar,
                                   child: const Text('Xoá ảnh'),
                                 ),
                             ],

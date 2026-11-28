@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:image/image.dart' as image;
+
 import '../domain/avatar_repository.dart';
 
 /// Implementation limits for review, not numbers required by the project PDF.
@@ -23,12 +25,32 @@ class AvatarValidationFailure implements Exception {
 /// No picker, file path, storage, Auth mutation or network access is involved.
 class AvatarImageValidator {
   const AvatarImageValidator({this.policy = const AvatarValidationPolicy()});
+  static const localAvatarDimension = 384;
+
   final AvatarValidationPolicy policy;
 
-  Future<AvatarImage> validate(
+  Future<AvatarImage> validate(Uint8List bytes, {String? declaredMimeType}) =>
+      _decode(bytes, declaredMimeType: declaredMimeType);
+
+  /// Keeps the original aspect ratio and bounds both thumbnail dimensions.
+  Future<AvatarImage> normalizeForAvatar(
     Uint8List bytes, {
     String? declaredMimeType,
+    int maxDimension = localAvatarDimension,
+  }) => _decode(
+    bytes,
+    declaredMimeType: declaredMimeType,
+    thumbnailDimension: maxDimension,
+  );
+
+  Future<AvatarImage> _decode(
+    Uint8List bytes, {
+    String? declaredMimeType,
+    int? thumbnailDimension,
   }) async {
+    if (thumbnailDimension != null && thumbnailDimension <= 0) {
+      throw ArgumentError.value(thumbnailDimension, 'maxDimension');
+    }
     if (bytes.isEmpty) {
       throw const AvatarValidationFailure('Ảnh không có dữ liệu.');
     }
@@ -47,88 +69,73 @@ class AvatarImageValidator {
       );
     }
 
-    ui.ImmutableBuffer? buffer;
-    ui.ImageDescriptor? descriptor;
     ui.Codec? codec;
     ui.Image? decoded;
     try {
-      buffer = await ui.ImmutableBuffer.fromUint8List(stableBytes);
-      descriptor = await ui.ImageDescriptor.encoded(buffer);
-      // Inspect encoded dimensions before allocating the decoded pixel image.
-      if (descriptor.width <= 0 ||
-          descriptor.height <= 0 ||
-          descriptor.width > policy.maxDimension ||
-          descriptor.height > policy.maxDimension) {
-        throw const AvatarValidationFailure(
-          'Kích thước ảnh vượt giới hạn cho phép.',
-        );
-      }
-      codec = await descriptor.instantiateCodec();
-      final frame = await codec.getNextFrame();
-      decoded = frame.image;
-      return AvatarImage(
-        bytes: stableBytes,
-        contentType: contentType,
-        width: descriptor.width,
-        height: descriptor.height,
-      );
-    } on AvatarValidationFailure {
-      rethrow;
-    } catch (_) {
-      // Codec errors can include input details; expose only a fixed safe message.
-      throw const AvatarValidationFailure(
-        'Ảnh bị lỗi hoặc không giải mã được.',
-      );
-    } finally {
-      decoded?.dispose();
-      codec?.dispose();
-      descriptor?.dispose();
-      buffer?.dispose();
-    }
-  }
-
-  /// Validates signature/size, then decodes with a capped target size (safe for
-  /// large 4K/8K photos on Flutter Web) and re-encodes a compact square-ish PNG
-  /// avatar so it always fits local storage quotas.
-  Future<AvatarImage> normalizeForAvatar(
-    Uint8List bytes, {
-    String? declaredMimeType,
-    int targetWidth = 384,
-  }) async {
-    if (bytes.isEmpty) {
-      throw const AvatarValidationFailure('Ảnh không có dữ liệu.');
-    }
-    if (bytes.lengthInBytes > policy.maxBytes) {
-      throw const AvatarValidationFailure('Ảnh vượt quá dung lượng cho phép.');
-    }
-    final stableBytes = Uint8List.fromList(bytes);
-    // Throws for anything that is not a real PNG/JPEG signature.
-    _contentType(stableBytes);
-
-    ui.Codec? codec;
-    ui.Image? decoded;
-    try {
-      codec = await ui.instantiateImageCodec(
-        stableBytes,
-        targetWidth: targetWidth,
-      );
-      final frame = await codec.getNextFrame();
-      decoded = frame.image;
-      final data = await decoded.toByteData(format: ui.ImageByteFormat.png);
-      if (data == null) {
+      // Flutter Web does not expose encoded ImageDescriptor dimensions.
+      // Inspect the headers before asking Flutter to allocate a decoded frame.
+      final decoder = contentType == 'image/png'
+          ? image.PngDecoder(maxPixels: 0)
+          : image.JpegDecoder(maxPixels: 0);
+      final dimensions = decoder.startDecode(stableBytes);
+      if (dimensions == null) {
         throw const AvatarValidationFailure(
           'Ảnh bị lỗi hoặc không giải mã được.',
         );
       }
+      if (dimensions.width <= 0 ||
+          dimensions.height <= 0 ||
+          dimensions.width > policy.maxDimension ||
+          dimensions.height > policy.maxDimension) {
+        throw const AvatarValidationFailure(
+          'Kích thước ảnh vượt giới hạn cho phép.',
+        );
+      }
+      if (thumbnailDimension != null &&
+          (dimensions.width > thumbnailDimension ||
+              dimensions.height > thumbnailDimension)) {
+        codec = await ui.instantiateImageCodecWithSize(
+          await ui.ImmutableBuffer.fromUint8List(stableBytes),
+          getTargetSize: (width, height) {
+            final largestSide = width >= height ? width : height;
+            if (largestSide <= thumbnailDimension) {
+              return const ui.TargetImageSize();
+            }
+            return ui.TargetImageSize(
+              width: (width * thumbnailDimension / largestSide).ceil(),
+              height: (height * thumbnailDimension / largestSide).ceil(),
+            );
+          },
+        );
+      } else {
+        codec = await ui.instantiateImageCodec(stableBytes);
+      }
+      final frame = await codec.getNextFrame();
+      decoded = frame.image;
+      if (thumbnailDimension != null) {
+        final png = await decoded.toByteData(format: ui.ImageByteFormat.png);
+        if (png == null) {
+          throw const AvatarValidationFailure(
+            'Không thể chuẩn bị ảnh đại diện để tải lên.',
+          );
+        }
+        return AvatarImage(
+          bytes: png.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes),
+          contentType: 'image/png',
+          width: decoded.width,
+          height: decoded.height,
+        );
+      }
       return AvatarImage(
-        bytes: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-        contentType: 'image/png',
+        bytes: stableBytes,
+        contentType: contentType,
         width: decoded.width,
         height: decoded.height,
       );
     } on AvatarValidationFailure {
       rethrow;
     } catch (_) {
+      // Codec errors can include input details; expose only a fixed safe message.
       throw const AvatarValidationFailure(
         'Ảnh bị lỗi hoặc không giải mã được.',
       );

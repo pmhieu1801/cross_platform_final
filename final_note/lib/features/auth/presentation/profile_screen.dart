@@ -30,6 +30,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _editing = false;
   String? _avatarFeedback;
   bool _avatarError = false;
+  bool _avatarSaving = false;
 
   Future<void> _openAvatarPickerDialog() async {
     final base64Controller = TextEditingController();
@@ -145,36 +146,34 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           },
         );
     base64Controller.dispose();
-    if (picked == null || !mounted) return;
-
-    if (picked.remove) {
-      await testerSafeRun(
-        () => ref.read(accountCustomAvatarProvider.notifier).removeAvatar(),
-      );
-      if (!mounted) return;
-      setState(() {
-        _avatarError = false;
-        _avatarFeedback = 'Đã khôi phục ảnh đại diện mặc định.';
-      });
+    if (picked == null ||
+        !mounted ||
+        ref.read(authenticatedUidProvider) != widget.uid) {
       return;
     }
 
-    final error = await testerSafeRun(
-      () => ref
-          .read(accountCustomAvatarProvider.notifier)
-          .pickAndSaveAvatar(
+    setState(() {
+      _avatarSaving = true;
+      _avatarFeedback = null;
+    });
+    final avatarActions = ref.read(accountCustomAvatarProvider.notifier);
+    final error = picked.remove
+        ? await avatarActions.removeAvatar()
+        : await avatarActions.pickAndSaveAvatar(
             bytes: picked.bytes ?? Uint8List(0),
             declaredMimeType: picked.mime,
-          ),
-    );
-    if (!mounted) return;
+          );
+    if (!mounted || ref.read(authenticatedUidProvider) != widget.uid) return;
     setState(() {
+      _avatarSaving = false;
       _avatarError = error != null;
-      _avatarFeedback = error ?? 'Đã cập nhật ảnh đại diện.';
+      _avatarFeedback =
+          error ??
+          (picked.remove
+              ? 'Đã khôi phục ảnh đại diện mặc định.'
+              : 'Đã cập nhật ảnh đại diện.');
     });
   }
-
-  Future<T> testerSafeRun<T>(Future<T> Function() action) => action();
 
   @override
   void initState() {
@@ -220,7 +219,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
     final state = ref.watch(profileActionsProvider);
     final actions = ref.read(profileActionsProvider.notifier);
-    final customAvatar = ref.watch(accountCustomAvatarProvider).asData?.value;
+    final avatar = ref.watch(accountCustomAvatarProvider);
+    final customAvatar = avatar.value;
     return PopScope(
       canPop: !state.busy,
       child: Scaffold(
@@ -253,26 +253,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         Center(
                           child: TextButton.icon(
                             key: const Key('profile-change-avatar'),
-                            onPressed: state.busy
+                            onPressed:
+                                state.busy || _avatarSaving || avatar.isLoading
                                 ? null
                                 : _openAvatarPickerDialog,
                             icon: const Icon(
                               Icons.photo_camera_outlined,
                               size: 18,
                             ),
-                            label: const Text('Change avatar'),
+                            label: Text(
+                              _avatarSaving
+                                  ? 'Saving avatar…'
+                                  : 'Change avatar',
+                            ),
                           ),
                         ),
-                        if (_avatarFeedback != null) ...[
+                        if (_avatarFeedback != null || avatar.hasError) ...[
                           const SizedBox(height: AppSpacing.xs),
                           Semantics(
                             liveRegion: true,
                             child: Text(
-                              _avatarFeedback!,
+                              _avatarFeedback ?? 'Không thể tải ảnh đại diện. Hãy làm mới hồ sơ.',
                               key: const Key('profile-avatar-feedback'),
                               textAlign: TextAlign.center,
                               style: context.text.bodySmall?.copyWith(
-                                color: _avatarError
+                                color: (_avatarError || avatar.hasError)
                                     ? context.colors.error
                                     : context.tokens.success,
                               ),
@@ -355,9 +360,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         const SizedBox(height: AppSpacing.sm),
                         OutlinedButton.icon(
                           key: const Key('profile-refresh'),
-                          onPressed: state.busy || _editing
+                          onPressed: state.busy || _editing || _avatarSaving
                               ? null
-                              : actions.refresh,
+                              : () {
+                                  setState(() => _avatarFeedback = null);
+                                  ref.invalidate(accountCustomAvatarProvider);
+                                  actions.refresh();
+                                },
                           icon: state.refreshing
                               ? const SizedBox(
                                   width: 18,
