@@ -1,5 +1,8 @@
 # NoteFlow - M1 W1
 
+Read [release setup](Readme.txt) and [M1 regression evidence](docs/m1-week2-regression.md)
+for the current avatar configuration, signing and release commands.
+
 Một Flutter project chung cho Web và Android. W1 gồm Firebase Email/Password register/login/logout, guard, banner chưa xác minh và private shell hiển thị UID. Notes thuộc M2; share/rules/lock/sync/AI thuộc M3, chưa triển khai ở đây. **Chưa claim Gate W1/Done**; xem [verification](docs/m1-week1-verification.md).
 
 ## Môi trường và kiến trúc

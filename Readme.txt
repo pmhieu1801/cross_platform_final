@@ -23,12 +23,11 @@ Repository       : https://github.com/pmhieu1801/cross_platform_final
 
 2. SDK VERSIONS & SUPPORTED TARGET PLATFORMS
 --------------------------------------------
-- Flutter SDK : >= 3.29.0 (tested with Flutter 3.41.x / Dart >= 3.11.0 < 4.0.0)
-- Dart SDK    : ^3.11.0
+- Flutter SDK : 3.47.0 stable
+- Dart SDK    : 3.13.0 or a compatible 3.x version
 - Supported Platforms:
   1. Web (Chrome / Edge / Safari) — Primary web target
-  2. Android (Phone & Tablet, minSdk 21+) — Primary mobile target
-  3. macOS / Windows / iOS (Responsive desktop & mobile adaptive layouts)
+  2. Android (phone and tablet, minSdk 24) — Primary mobile target
 
 3. ARCHITECTURE & STATE MANAGEMENT OVERVIEW
 -------------------------------------------
@@ -90,19 +89,21 @@ Repository       : https://github.com/pmhieu1801/cross_platform_final
 
 5. THIRD-PARTY PACKAGES & PURPOSE
 ---------------------------------
-- `firebase_core` (^4.6.0)       : Firebase SDK initialization across platforms.
-- `firebase_auth` (^6.3.0)       : Email/Password sign-in, registration, email
+- `firebase_core` (^5.1.0)       : Firebase SDK initialization across platforms.
+- `firebase_auth` (^7.0.1)       : Email/Password sign-in, registration, email
                                    verification, password reset, reauthentication.
-- `flutter_riverpod` (^2.6.1)    : Reactive, account-scoped state management.
-- `go_router` (^14.8.1)          : Declarative routing and `sessionRedirect` guard.
-- `shared_preferences` (^2.5.3)  : Local offline persistence per UID.
-- `http` (^1.2.2)                : Optional HTTPS client for Gemini AI REST API.
+- `flutter_riverpod` (^3.4.3)    : Reactive, account-scoped state management.
+- `go_router` (^18.1.1)          : Declarative routing and `sessionRedirect` guard.
+- `shared_preferences` (^2.3.2)  : Local offline persistence per UID.
+- `cloud_firestore` (^7.2.0) : Private cross-device avatars.
+- `image` (^4.10.2)         : PNG/JPEG metadata checks before avatar decoding.
+- `file_picker` (^13.4.1)    : Device image and attachment selection.
 - `cupertino_icons` (^1.0.8)     : Platform icon support.
 
 6. CONFIGURATION FILES & ENVIRONMENT VARIABLES (NO HARD-CODED SECRETS)
 ----------------------------------------------------------------------
-- All runtime secrets and API keys are injected via `--dart-define` or
-  `--dart-define-from-file` (never hard-coded in Dart source code):
+- Flutter build defines contain only client identifiers and feature flags.
+  Keep service credentials, API secrets and signing keys off the client.
   * Template file: `final_note/.env.example`
   * Firebase Web config file: `final_note/config/firebase.web.json`
     Keys:
@@ -112,52 +113,50 @@ Repository       : https://github.com/pmhieu1801/cross_platform_final
     - `FIREBASE_PROJECT_ID`
     - `FIREBASE_AUTH_DOMAIN`
     - `FIREBASE_STORAGE_BUCKET`
-  * Optional Gemini AI key for live LLM calls (falls back automatically to the
-    built-in deterministic offline extractive engine when omitted):
-    - `GEMINI_API_KEY`
-    - `GEMINI_MODEL` (default: `gemini-2.5-flash`)
+  * Set FIREBASE_CLOUD_AVATARS=true only with the deployed avatar rules.
+    An earlier local avatar is preserved until the user saves or resets it.
+  * The current AI implementation is local and has no Gemini API integration.
 
-7. EXACT COMMANDS TO INSTALL, TEST, RUN & BUILD RELEASE ARTIFACTS
------------------------------------------------------------------
-All commands below should be executed from the `final_note/` directory:
+7. SETUP, TESTING AND RELEASE COMMANDS
+--------------------------------------
+Run the Flutter and Firebase CLI commands from the final_note directory.
+The Web and Android builds use the same Flutter project.
 
-  cd final_note
-
-A) Install dependencies:
-  flutter pub get
-
-B) Static analysis & formatting check:
-  dart format --output=none --set-exit-if-changed lib test integration_test
-  flutter analyze
-
-C) Run automated unit & widget test suite (138+ tests):
-  flutter test
-
-D) Run on Web (Chrome):
+  flutter pub get --enforce-lockfile
+  flutter analyze --no-pub
+  flutter test --no-pub
   flutter run -d chrome --dart-define-from-file=config/firebase.web.json
+  flutter devices
+  flutter run -d emulator-5554 --dart-define-from-file=config/firebase.android.json
 
-   (Optional: with live Gemini API key)
-  flutter run -d chrome \
-    --dart-define-from-file=config/firebase.web.json \
-    --dart-define=GEMINI_API_KEY=your_gemini_api_key
+For the cross-device avatar, use the Firebase project's default Firestore
+database and deploy the accountAvatars rules and index configuration.
+For a project with existing Firestore rules or indexes, merge the avatar
+configuration with the team's existing configuration before deployment.
+Keep the database and Hosting on the existing Spark plan.
 
-E) Run on Android emulator / connected device:
-  flutter run -d android --dart-define-from-file=config/firebase.web.json
+  firebase deploy --only firestore --project noteflow-3f90d
+  flutter build web --release --dart-define-from-file=config/firebase.web.json --dart-define=FIREBASE_CLOUD_AVATARS=true
+  firebase deploy --only hosting --project noteflow-3f90d
 
-F) Build Release Artifacts:
-  - Web Release Build:
-    flutter build web --release --dart-define-from-file=config/firebase.web.json
+Build Android with Android SDK 36, JDK 21 and the team's release key.
+Copy android/key.properties.example to android/key.properties locally.
+Set the keystore path, alias and passwords. Keep them outside Git.
 
-  - Android APK Release Build:
-    flutter build apk --release --dart-define-from-file=config/firebase.web.json
+  flutter build apk --release --dart-define-from-file=config/firebase.android.json --dart-define=FIREBASE_CLOUD_AVATARS=true
+
+The APK is in build/app/outputs/flutter-apk/app-release.apk. Verify its
+signature and install it on a clean Android device before recording the demo.
+Record the confirmed public HTTPS URL and APK filename in the submission.
+The deployment status and M1 regression evidence are in docs/m1-week2-regression.md.
 
 8. TEST / GRADING ACCOUNTS & QUICK VERIFICATION GUIDE
 -----------------------------------------------------
-- Reviewers can register any two accounts directly from the `/register` screen
-  (Firebase Email/Password authentication is live on project `final-432b3`), or
-  use pre-registered test accounts:
-  * Account 1 (Owner/Collaborator): `student1@noteflow.test` / `Password123!`
-  * Account 2 (Collaborator)      : `student2@noteflow.test` / `Password123!`
+- Firebase Email/Password is configured for project noteflow-3f90d.
+  Include disposable grading accounts with preloaded data in the private
+  submission. Keep the grading passwords there.
+- The checks below exercise the current UI. Production note sharing,
+  backend note authorization and remote synchronization are pending.
 - Note Password Protection (R23/R24):
   Open any note -> click the Lock icon (`Protect note with password`) -> enter
   and confirm a password (minimum 4 characters). Use `Lock now` inside the lock

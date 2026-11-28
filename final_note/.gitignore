@@ -49,6 +49,7 @@ app.*.map.json
 
 # Local config, credentials and temporary verification renders
 /tmp/
+/.firebase/
 /config/*.local.json
 .env
 .env.*

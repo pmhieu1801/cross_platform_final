@@ -1,12 +1,15 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../application/auth_providers.dart';
 import '../application/avatar_image_validator.dart';
 import '../domain/avatar_repository.dart';
+import 'firestore_avatar_store.dart';
 
 /// Account-scoped local avatar store and [AvatarRepository] implementation (R06).
 ///
@@ -149,7 +152,19 @@ final avatarRepositoryProvider = Provider<LocalAvatarRepository>((ref) {
   return LocalAvatarRepository();
 });
 
-/// Holds the active account's locally persisted custom [AvatarImage] (R06).
+final syncedAvatarStoreProvider = FutureProvider<SyncedAvatarStore?>((
+  ref,
+) async {
+  const enabled = bool.fromEnvironment('FIREBASE_CLOUD_AVATARS');
+  if (!enabled) return null;
+  final app = await ref.watch(firebaseAppProvider.future);
+  return FirestoreAvatarStore(
+    FirebaseFirestore.instanceFor(app: app),
+    FirebaseAuth.instanceFor(app: app),
+  );
+});
+
+/// Holds the active account's custom avatar, with a fallback for older installs.
 final accountCustomAvatarProvider =
     AsyncNotifierProvider.autoDispose<
       AccountCustomAvatarNotifier,
@@ -161,8 +176,14 @@ class AccountCustomAvatarNotifier extends AsyncNotifier<AvatarImage?> {
   Future<AvatarImage?> build() async {
     final session = ref.watch(accountSessionProvider);
     if (session == null || !session.isActive) return null;
-    final repo = ref.watch(avatarRepositoryProvider);
-    return repo.loadAvatar(session.uid);
+    final local = ref.watch(avatarRepositoryProvider);
+    final synced = await ref.watch(syncedAvatarStoreProvider.future);
+    if (!session.isActive) return null;
+    if (synced != null) {
+      final saved = await synced.load(session.uid);
+      if (saved.initialized) return saved.image;
+    }
+    return local.loadAvatar(session.uid);
   }
 
   Future<String?> pickAndSaveAvatar({
@@ -174,14 +195,23 @@ class AccountCustomAvatarNotifier extends AsyncNotifier<AvatarImage?> {
       return 'Phiên đăng nhập không hợp lệ.';
     }
     try {
-      final repo = ref.read(avatarRepositoryProvider);
-      final saved = await repo.validateAndSaveAvatar(
-        expectedUid: session.uid,
-        rawBytes: bytes,
+      final local = ref.read(avatarRepositoryProvider);
+      final synced = await ref.read(syncedAvatarStoreProvider.future);
+      final image = await local.validator.normalizeForAvatar(
+        bytes,
         declaredMimeType: declaredMimeType,
+        maxDimension: synced == null
+            ? AvatarImageValidator.localAvatarDimension
+            : FirestoreAvatarStore.maxDimension,
       );
-      if (!session.isActive) return null;
-      state = AsyncData(saved.image);
+      if (!ref.mounted || !session.isActive) return null;
+      if (synced == null) {
+        await local.upload(expectedUid: session.uid, image: image);
+      }
+      final saved = synced == null
+          ? image
+          : await synced.save(session.uid, image);
+      if (ref.mounted && session.isActive) state = AsyncData(saved);
       return null;
     } on AvatarValidationFailure catch (error) {
       return error.message;
@@ -190,12 +220,24 @@ class AccountCustomAvatarNotifier extends AsyncNotifier<AvatarImage?> {
     }
   }
 
-  Future<void> removeAvatar() async {
+  Future<String?> removeAvatar() async {
     final session = ref.read(accountSessionProvider);
-    if (session == null || !session.isActive) return;
-    final repo = ref.read(avatarRepositoryProvider);
-    await repo.clearAvatar(session.uid);
-    if (!session.isActive) return;
-    state = const AsyncData(null);
+    if (session == null || !session.isActive) {
+      return 'Phiên đăng nhập không hợp lệ.';
+    }
+    try {
+      final local = ref.read(avatarRepositoryProvider);
+      final synced = await ref.read(syncedAvatarStoreProvider.future);
+      if (!ref.mounted || !session.isActive) return null;
+      if (synced == null) {
+        await local.clearAvatar(session.uid);
+      } else {
+        await synced.reset(session.uid);
+      }
+      if (ref.mounted && session.isActive) state = const AsyncData(null);
+      return null;
+    } catch (_) {
+      return 'Không thể xóa ảnh đại diện. Hãy thử lại.';
+    }
   }
 }

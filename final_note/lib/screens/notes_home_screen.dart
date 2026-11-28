@@ -87,7 +87,7 @@ class NotesHomeScreen extends StatefulWidget {
   final AuthUser? user;
   final Uint8List? avatarBytes;
   final Future<String?> Function(Uint8List bytes)? onPickAvatar;
-  final Future<void> Function()? onRemoveAvatar;
+  final Future<String?> Function()? onRemoveAvatar;
   final Widget? verificationBanner;
   final bool authBusy;
   final String? authError;
